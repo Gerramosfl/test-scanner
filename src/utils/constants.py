@@ -40,7 +40,7 @@ CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
 
 # Configuración de la interfaz
-WINDOW_TITLE = "Test Scanner - Sistema de Calificación Automática"
+WINDOW_TITLE = "Test Scanner - Sistema de Calificación Automática. By Gerson"
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 
