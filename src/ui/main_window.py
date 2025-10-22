@@ -20,9 +20,10 @@ class MainWindow(ctk.CTk):
         # Configuración de la ventana
         self.title(WINDOW_TITLE)
         self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        self.state('zoomed')  # Iniciar maximizada
         
-        # Centrar ventana
-        self.center_window()
+        # Centrar ventana (ya que está maximizada, esto es opcional)
+        #self.center_window()
         
         # Datos compartidos entre pestañas
         self.app_data = {
