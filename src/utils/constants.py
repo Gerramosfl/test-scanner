@@ -34,7 +34,7 @@ DEFAULT_PASSING_GRADE = 4.0
 DEFAULT_PASSING_PERCENTAGE = 60.0
 
 # Configuración de la cámara
-DEFAULT_CAMERA_INDEX = 0
+DEFAULT_CAMERA_INDEX = 1 # Índice de la cámara: 0 para cámara integrada, 1 para cámara externa
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 CAMERA_FPS = 30
