@@ -20,26 +20,83 @@ class GradingTab:
     def __init__(self, parent, app_data):
         self.parent = parent
         self.app_data = app_data
-        
+
         self.camera = None
         self.camera_running = False
         self.current_frame = None
         self.detected_matricula = None
         self.detected_answers = {}
-        
+        self.available_cameras = []
+        self.selected_camera_index = 0
+
         # Crear frame principal
         self.main_frame = ctk.CTkFrame(parent)
         self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
+
+        # Detectar cámaras disponibles
+        self.detect_available_cameras()
+
         self.create_widgets()
-    
+
+    def detect_available_cameras(self):
+        """Detecta todas las cámaras disponibles en el sistema"""
+        self.available_cameras = []
+        # Probar hasta 10 índices de cámara
+        for i in range(10):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Intentar leer un frame para confirmar que funciona
+                ret, _ = cap.read()
+                if ret:
+                    self.available_cameras.append(i)
+                cap.release()
+            else:
+                # Si no se puede abrir, probablemente no hay más cámaras
+                break
+
+        # Si no se encontraron cámaras, agregar índice 0 por defecto
+        if not self.available_cameras:
+            self.available_cameras = [0]
+            print("⚠️ Advertencia: No se detectaron cámaras, usando índice 0 por defecto")
+        else:
+            print(f"✅ Cámaras detectadas: {self.available_cameras}")
+
+    def on_camera_selected(self, choice):
+        """Callback cuando se selecciona una cámara diferente"""
+        # Extraer el índice de la cámara del texto "Cámara X"
+        camera_index = int(choice.split()[-1])
+        self.selected_camera_index = camera_index
+        print(f"📹 Cámara seleccionada: índice {camera_index}")
+
+        # Si la cámara está corriendo, reiniciarla con el nuevo índice
+        if self.camera_running:
+            self.stop_camera()
+            # Dar un momento para que se libere la cámara anterior
+            self.parent.after(500, self.start_camera)
+
     def create_widgets(self):
         """Crea todos los widgets de la pestaña"""
         
         # Frame superior con controles
         control_frame = ctk.CTkFrame(self.main_frame)
         control_frame.pack(fill="x", pady=10)
-        
+
+        # Label y selector de cámara
+        camera_select_label = ctk.CTkLabel(control_frame,
+                                           text="Cámara:",
+                                           font=ctk.CTkFont(size=12))
+        camera_select_label.pack(side="left", padx=(10, 5))
+
+        # ComboBox para seleccionar cámara
+        camera_options = [f"Cámara {i}" for i in self.available_cameras]
+        self.camera_selector = ctk.CTkComboBox(control_frame,
+                                               values=camera_options,
+                                               command=self.on_camera_selected,
+                                               width=120,
+                                               state="readonly")
+        self.camera_selector.set(camera_options[0])
+        self.camera_selector.pack(side="left", padx=5)
+
         # Botón para iniciar cámara
         self.start_camera_btn = ctk.CTkButton(control_frame,
                                              text="📹 Iniciar Cámara",
@@ -98,24 +155,26 @@ class GradingTab:
         """Inicia la cámara"""
         if self.camera_running:
             return
-        
+
         try:
-            self.camera = cv2.VideoCapture(DEFAULT_CAMERA_INDEX)
+            # Usar la cámara seleccionada por el usuario
+            self.camera = cv2.VideoCapture(self.selected_camera_index)
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            
+
             if not self.camera.isOpened():
-                raise Exception("No se pudo abrir la cámara")
-            
+                raise Exception(f"No se pudo abrir la cámara {self.selected_camera_index}")
+
             self.camera_running = True
             self.start_camera_btn.configure(state="disabled")
             self.stop_camera_btn.configure(state="normal")
             self.grade_btn.configure(state="normal")
-            self.info_label.configure(text="Cámara activa - Acerque la hoja de respuestas")
-            
+            self.camera_selector.configure(state="disabled")  # Deshabilitar selector mientras cámara activa
+            self.info_label.configure(text=f"Cámara {self.selected_camera_index} activa - Acerque la hoja de respuestas")
+
             # Iniciar thread para actualizar video
             self.update_camera()
-            
+
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo iniciar la cámara:\n{str(e)}")
             self.stop_camera()
@@ -123,14 +182,15 @@ class GradingTab:
     def stop_camera(self):
         """Detiene la cámara"""
         self.camera_running = False
-        
+
         if self.camera:
             self.camera.release()
             self.camera = None
-        
+
         self.start_camera_btn.configure(state="normal")
         self.stop_camera_btn.configure(state="disabled")
         self.grade_btn.configure(state="disabled")
+        self.camera_selector.configure(state="readonly")  # Habilitar selector nuevamente
         self.info_label.configure(text="Cámara detenida")
         self.camera_label.configure(image="", text="Cámara detenida")
     
