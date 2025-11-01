@@ -18,8 +18,8 @@ PAPER_WIDTH_MM = 215.9
 PAPER_HEIGHT_MM = 279.4
 
 # Configuración de detección OMR
-MIN_FILL_PERCENTAGE = 40  # Porcentaje mínimo de relleno para considerar marcado
-MAX_FILL_PERCENTAGE = 90  # Porcentaje máximo (para detectar sobre-marcado)
+MIN_FILL_PERCENTAGE = 60  # Porcentaje mínimo de relleno para considerar marcado
+MAX_FILL_PERCENTAGE = 95  # Porcentaje máximo (para detectar sobre-marcado)
 
 # Colores para overlay visual (BGR para OpenCV)
 COLOR_CORRECT = (0, 255, 0)      # Verde
