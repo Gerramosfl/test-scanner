@@ -19,6 +19,7 @@ from src.core.grade_calculator import GradeCalculator
 from src.core.pdf_processor import PDFProcessor
 from src.core.image_processor import ImageProcessor
 from src.core.omr_detector import OMRDetector
+from src.ui.manual_review_window import ManualReviewWindow
 
 
 class GradingTab:
@@ -429,7 +430,13 @@ class GradingTab:
             'nota': 0.0,
             'confidence': 0.0,
             'message': '',
-            'saved_to_excel': False
+            'saved_to_excel': False,
+            'image_saved': False,
+            'image_path': None,
+            'needs_review': False,
+            'warped_image': None,
+            'detection_result': None,
+            'overlay_image': None
         }
 
         try:
@@ -450,12 +457,66 @@ class GradingTab:
                 process_result['preprocessed']
             )
 
+            # Guardar datos necesarios para revisión manual
+            result['warped_image'] = process_result['warped_image']
+            result['detection_result'] = detection_result
+
             # Extraer matrícula
             result['matricula'] = detection_result['matricula'].get('matricula', 'N/A')
             result['respuestas'] = detection_result['respuestas'].get('respuestas', {})
             result['confidence'] = detection_result.get('overall_confidence', 0.0)
 
-            # Paso 4: Calificar si hay pauta
+            # Verificar si necesita revisión manual (confianza < 99%)
+            CONFIDENCE_THRESHOLD = 99.0
+            result['needs_review'] = result['confidence'] < CONFIDENCE_THRESHOLD
+
+            # Paso 4: Generar y guardar imagen con overlay visual
+            try:
+                # Generar overlay visual
+                overlay = self.omr_detector.create_visual_overlay(
+                    process_result['warped_image'],
+                    detection_result,
+                    answer_key=self.app_data.get('answer_key')
+                )
+
+                # Guardar overlay en result (necesario para revisión manual)
+                result['overlay_image'] = overlay
+
+                # Determinar dónde guardar la imagen
+                if self.app_data.get('excel_handler'):
+                    # Guardar en la misma carpeta que el Excel
+                    excel_path = self.app_data['excel_handler'].filepath
+                    output_dir = Path(excel_path).parent
+                else:
+                    # Guardar en la carpeta del PDF si no hay Excel configurado
+                    output_dir = Path(pdf_path).parent
+
+                # Crear nombre de archivo: {matricula}_{nombre_prueba}.jpg
+                test_name = self.app_data.get('test_name', 'Prueba')
+                # Limpiar nombre de prueba para que sea válido en sistema de archivos
+                safe_test_name = "".join(c for c in test_name if c.isalnum() or c in (' ', '_', '-')).strip()
+                image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+                image_path = output_dir / image_filename
+
+                # Guardar la ruta para usar después
+                result['image_path'] = str(image_path)
+
+                # IMPORTANTE: Solo guardar imagen si NO necesita revisión manual
+                # Si necesita revisión, la imagen se guardará DESPUÉS de las correcciones
+                if not result['needs_review']:
+                    cv2.imwrite(str(image_path), overlay)
+                    result['image_saved'] = True
+                else:
+                    # No guardar todavía, se guardará después de la revisión manual
+                    result['image_saved'] = False
+
+            except Exception as e:
+                # Si falla el guardado de imagen, continuar con el procesamiento
+                result['image_saved'] = False
+                result['image_path'] = None
+                print(f"⚠️ Error al guardar imagen overlay: {e}")
+
+            # Paso 5: Calificar si hay pauta
             if self.app_data.get('answer_key'):
                 # Comparar respuestas con la pauta
                 answer_key = self.app_data['answer_key']
@@ -487,20 +548,30 @@ class GradingTab:
 
                 result['nota'] = grade_calc.calculate_grade(correctas)
 
-                # Paso 5: Guardar en Excel si está configurado
+                # Paso 6: Guardar en Excel si está configurado
+                # NO guardar si necesita revisión manual (confianza < 99%)
                 if self.app_data.get('excel_handler') and result['matricula'] != 'N/A':
-                    excel_handler = self.app_data['excel_handler']
-                    save_result = excel_handler.save_grade(
-                        matricula=result['matricula'],
-                        grade=result['nota'],
-                        test_name=self.app_data.get('test_name', 'Prueba')
-                    )
-                    result['saved_to_excel'] = save_result['success']
-                    if not save_result['success']:
-                        result['message'] = save_result['message']
+                    if not result['needs_review']:
+                        # Solo guardar si la confianza es >= 99%
+                        excel_handler = self.app_data['excel_handler']
+                        save_result = excel_handler.save_grade(
+                            matricula=result['matricula'],
+                            grade=result['nota'],
+                            test_name=self.app_data.get('test_name', 'Prueba')
+                        )
+                        result['saved_to_excel'] = save_result['success']
+                        if not save_result['success']:
+                            result['message'] = save_result['message']
+                    else:
+                        # Marcar que no se guardó porque necesita revisión
+                        result['saved_to_excel'] = False
+                        result['message'] = 'Requiere revisión manual (confianza < 99%)'
 
             result['success'] = True
-            result['message'] = "Procesado exitosamente"
+            if result['needs_review']:
+                result['message'] = "Procesado - Requiere revisión manual"
+            else:
+                result['message'] = "Procesado exitosamente"
 
         except Exception as e:
             result['message'] = f"Error: {str(e)}"
@@ -509,7 +580,14 @@ class GradingTab:
 
     def append_result(self, result: Dict):
         """Agrega un resultado al área de texto"""
-        status = "✅" if result['success'] else "❌"
+        # Determinar emoji de estado
+        if not result['success']:
+            status = "❌"
+        elif result.get('needs_review'):
+            status = "⚠️"  # Advertencia para hojas que necesitan revisión
+        else:
+            status = "✅"
+
         text = f"\n{'='*80}\n"
         text += f"{status} {result['filename']}\n"
         text += f"{'='*80}\n"
@@ -517,6 +595,10 @@ class GradingTab:
         if result['success']:
             text += f"Matrícula: {result['matricula']}\n"
             text += f"Confianza: {result['confidence']:.1f}%\n"
+
+            # Indicar si necesita revisión
+            if result.get('needs_review'):
+                text += "⚠️ REQUIERE REVISIÓN MANUAL (confianza < 99%)\n"
 
             if result['nota'] > 0:
                 text += f"Correctas: {result['correctas']} | " \
@@ -527,6 +609,18 @@ class GradingTab:
                     text += "💾 Guardado en Excel\n"
                 else:
                     text += f"⚠️ No guardado: {result['message']}\n"
+
+            # Mostrar información de imagen guardada
+            if result.get('image_saved'):
+                image_name = Path(result['image_path']).name
+                # Indicar si fue guardada después de revisión manual
+                if 'revisión manual' in result.get('message', ''):
+                    text += f"🖼️ Imagen guardada (con correcciones manuales): {image_name}\n"
+                else:
+                    text += f"🖼️ Imagen guardada: {image_name}\n"
+            elif result.get('needs_review') and result.get('image_path'):
+                # Tiene ruta pero no se guardó porque necesita revisión
+                text += f"🖼️ Imagen pendiente (se guardará después de revisión manual)\n"
         else:
             text += f"❌ Error: {result['message']}\n"
 
@@ -563,10 +657,117 @@ class GradingTab:
             saved = sum(1 for r in self.current_results if r.get('saved_to_excel'))
             summary += f"Guardados en Excel: {saved}\n"
 
+        # Información de imágenes guardadas
+        images_saved = sum(1 for r in self.current_results if r.get('image_saved'))
+        if images_saved > 0:
+            summary += f"Imágenes con overlay guardadas: {images_saved}\n"
+
+        # Verificar si hay hojas que necesitan revisión manual
+        sheets_needing_review = [
+            {
+                'result': r,
+                'warped_image': r.get('warped_image'),
+                'detection_result': r.get('detection_result'),
+                'overlay_image': r.get('overlay_image')
+            }
+            for r in self.current_results
+            if r.get('success') and r.get('needs_review')
+        ]
+
+        if sheets_needing_review:
+            summary += f"\n⚠️ Hojas que requieren revisión manual: {len(sheets_needing_review)}\n"
+
         self.results_text.insert("end", summary)
         self.status_label.configure(text="✅ Procesamiento completado")
 
-        messagebox.showinfo("Completado",
-                          f"Procesamiento finalizado\n\n" +
-                          f"Exitosos: {successful}/{total}\n" +
-                          f"Con errores: {failed}/{total}")
+        # Mostrar mensaje inicial
+        msg = f"Procesamiento finalizado\n\nExitosos: {successful}/{total}\nCon errores: {failed}/{total}"
+
+        if sheets_needing_review:
+            msg += f"\n\n⚠️ {len(sheets_needing_review)} hoja(s) requieren revisión manual\n(confianza < 99%)"
+
+            result = messagebox.askyesnocancel(
+                "Completado",
+                msg + "\n\n¿Deseas revisar las hojas ahora?",
+                icon='warning'
+            )
+
+            if result:  # Si presiona "Sí"
+                self.open_manual_review(sheets_needing_review)
+        else:
+            messagebox.showinfo("Completado", msg)
+
+    def open_manual_review(self, sheets_to_review: List[Dict]):
+        """Abre la ventana de revisión manual"""
+        try:
+            # Crear ventana de revisión manual
+            review_window = ManualReviewWindow(
+                parent=self.parent,
+                sheets_to_review=sheets_to_review,
+                omr_detector=self.omr_detector,
+                app_data=self.app_data,
+                on_save_callback=self.save_reviewed_sheet
+            )
+
+            # Esperar a que se cierre la ventana
+            self.parent.wait_window(review_window)
+
+            # Actualizar resultados después de la revisión
+            self.update_results_after_review()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al abrir ventana de revisión: {e}")
+
+    def save_reviewed_sheet(self, sheet: Dict) -> bool:
+        """
+        Callback para guardar una hoja después de revisión manual
+
+        Args:
+            sheet: Diccionario con información de la hoja revisada
+
+        Returns:
+            bool: True si se guardó exitosamente
+        """
+        try:
+            result = sheet['result']
+
+            # Guardar en Excel
+            if self.app_data.get('excel_handler') and result['matricula'] != 'N/A':
+                excel_handler = self.app_data['excel_handler']
+                save_result = excel_handler.save_grade(
+                    matricula=result['matricula'],
+                    grade=result['nota'],
+                    test_name=self.app_data.get('test_name', 'Prueba')
+                )
+
+                if save_result['success']:
+                    # Actualizar resultado
+                    result['saved_to_excel'] = True
+                    result['needs_review'] = False
+                    result['message'] = 'Guardado después de revisión manual'
+                    return True
+                else:
+                    messagebox.showerror("Error al guardar",
+                                       f"No se pudo guardar en Excel:\n{save_result['message']}")
+                    return False
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar hoja revisada: {e}")
+            return False
+
+    def update_results_after_review(self):
+        """Actualiza la visualización de resultados después de la revisión manual"""
+        # Contar hojas guardadas después de revisión
+        reviewed_saved = sum(1 for r in self.current_results
+                           if r.get('success') and not r.get('needs_review')
+                           and 'revisión manual' in r.get('message', ''))
+
+        if reviewed_saved > 0:
+            summary = f"\n{'='*80}\n"
+            summary += "ACTUALIZACIÓN POST-REVISIÓN\n"
+            summary += f"{'='*80}\n"
+            summary += f"Hojas guardadas después de revisión manual: {reviewed_saved}\n"
+            summary += f"{'='*80}\n"
+
+            self.results_text.insert("end", summary)
+            self.results_text.see("end")
