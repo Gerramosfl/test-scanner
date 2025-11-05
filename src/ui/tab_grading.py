@@ -1,268 +1,572 @@
 """
-Pestaña de calificación en tiempo real
+Pestaña de calificación con procesamiento por lotes de PDFs escaneados
 """
 
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
+from tkinterdnd2 import DND_FILES, TkinterDnD
 import cv2
 from PIL import Image, ImageTk
 import threading
-from src.utils.constants import (DEFAULT_CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT,
-                                MSG_NO_SHEET_DETECTED, MSG_INVALID_CONFIG)
+from pathlib import Path
+import os
+from typing import List, Dict
+
+from src.utils.constants import (MSG_INVALID_CONFIG, MSG_NO_ANSWER_KEY,
+                                MSG_NO_EXCEL_LOADED, MSG_GRADE_SAVED,
+                                MSG_DUPLICATE_GRADE, MSG_STUDENT_NOT_FOUND)
 from src.core.grade_calculator import GradeCalculator
+from src.core.pdf_processor import PDFProcessor
+from src.core.image_processor import ImageProcessor
+from src.core.omr_detector import OMRDetector
 
 
 class GradingTab:
     """
-    Pestaña para calificar pruebas en tiempo real usando la cámara
+    Pestaña para calificar pruebas usando PDFs escaneados con procesamiento por lotes
     """
-    
+
     def __init__(self, parent, app_data):
         self.parent = parent
         self.app_data = app_data
 
-        self.camera = None
-        self.camera_running = False
-        self.current_frame = None
-        self.detected_matricula = None
-        self.detected_answers = {}
-        self.available_cameras = []
-        self.selected_camera_index = 0
+        # Estado de procesamiento
+        self.pdf_queue = []  # Lista de PDFs a procesar
+        self.processing = False
+        self.current_results = []  # Resultados de procesamiento
+
+        # Procesadores
+        try:
+            self.pdf_processor = PDFProcessor(dpi=300)
+            self.image_processor = ImageProcessor()
+            self.omr_detector = OMRDetector()
+            self.processors_ready = True
+        except FileNotFoundError as e:
+            self.processors_ready = False
+            self.calibration_error = str(e)
 
         # Crear frame principal
         self.main_frame = ctk.CTkFrame(parent)
         self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Detectar cámaras disponibles
-        self.detect_available_cameras()
-
         self.create_widgets()
 
-    def detect_available_cameras(self):
-        """Detecta todas las cámaras disponibles en el sistema"""
-        self.available_cameras = []
-        # Probar hasta 10 índices de cámara
-        for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                # Intentar leer un frame para confirmar que funciona
-                ret, _ = cap.read()
-                if ret:
-                    self.available_cameras.append(i)
-                cap.release()
-            else:
-                # Si no se puede abrir, probablemente no hay más cámaras
-                break
-
-        # Si no se encontraron cámaras, agregar índice 0 por defecto
-        if not self.available_cameras:
-            self.available_cameras = [0]
-            print("⚠️ Advertencia: No se detectaron cámaras, usando índice 0 por defecto")
-        else:
-            print(f"✅ Cámaras detectadas: {self.available_cameras}")
-
-    def on_camera_selected(self, choice):
-        """Callback cuando se selecciona una cámara diferente"""
-        # Extraer el índice de la cámara del texto "Cámara X"
-        camera_index = int(choice.split()[-1])
-        self.selected_camera_index = camera_index
-        print(f"📹 Cámara seleccionada: índice {camera_index}")
-
-        # Si la cámara está corriendo, reiniciarla con el nuevo índice
-        if self.camera_running:
-            self.stop_camera()
-            # Dar un momento para que se libere la cámara anterior
-            self.parent.after(500, self.start_camera)
+        # Mostrar error de calibración si corresponde
+        if not self.processors_ready:
+            messagebox.showwarning(
+                "Calibración Requerida",
+                f"No se pudo inicializar el sistema:\n\n{self.calibration_error}\n\n" +
+                "Por favor ejecute el script de calibración:\n" +
+                "python calibrate_from_pdf.py <hoja_blanca.pdf>"
+            )
 
     def create_widgets(self):
         """Crea todos los widgets de la pestaña"""
-        
-        # Frame superior con controles
-        control_frame = ctk.CTkFrame(self.main_frame)
-        control_frame.pack(fill="x", pady=10)
 
-        # Label y selector de cámara
-        camera_select_label = ctk.CTkLabel(control_frame,
-                                           text="Cámara:",
-                                           font=ctk.CTkFont(size=12))
-        camera_select_label.pack(side="left", padx=(10, 5))
+        # ===== SECCIÓN SUPERIOR: CARGA DE PDFs =====
+        upload_frame = ctk.CTkFrame(self.main_frame)
+        upload_frame.pack(fill="x", pady=(0, 10))
 
-        # ComboBox para seleccionar cámara
-        camera_options = [f"Cámara {i}" for i in self.available_cameras]
-        self.camera_selector = ctk.CTkComboBox(control_frame,
-                                               values=camera_options,
-                                               command=self.on_camera_selected,
-                                               width=120,
-                                               state="readonly")
-        self.camera_selector.set(camera_options[0])
-        self.camera_selector.pack(side="left", padx=5)
+        # Título
+        title_label = ctk.CTkLabel(upload_frame,
+                                   text="📄 Cargar Hojas de Respuestas Escaneadas",
+                                   font=ctk.CTkFont(size=16, weight="bold"))
+        title_label.pack(pady=10)
 
-        # Botón para iniciar cámara
-        self.start_camera_btn = ctk.CTkButton(control_frame,
-                                             text="📹 Iniciar Cámara",
-                                             command=self.start_camera,
-                                             height=40,
-                                             width=150)
-        self.start_camera_btn.pack(side="left", padx=10)
-        
-        # Botón para detener cámara
-        self.stop_camera_btn = ctk.CTkButton(control_frame,
-                                            text="⏹ Detener Cámara",
-                                            command=self.stop_camera,
+        # Botones de carga
+        buttons_frame = ctk.CTkFrame(upload_frame)
+        buttons_frame.pack(pady=10)
+
+        self.load_files_btn = ctk.CTkButton(buttons_frame,
+                                           text="📁 Cargar PDFs",
+                                           command=self.load_pdf_files,
+                                           height=40,
+                                           width=180)
+        self.load_files_btn.pack(side="left", padx=10)
+
+        self.load_folder_btn = ctk.CTkButton(buttons_frame,
+                                            text="📂 Cargar Carpeta",
+                                            command=self.load_pdf_folder,
                                             height=40,
-                                            width=150,
-                                            state="disabled")
-        self.stop_camera_btn.pack(side="left", padx=10)
-        
-        # Botón para calificar
-        self.grade_btn = ctk.CTkButton(control_frame,
-                                      text="✅ Calificar",
-                                      command=self.grade_current_sheet,
-                                      height=40,
-                                      width=150,
-                                      state="disabled",
-                                      fg_color="green",
-                                      hover_color="darkgreen")
-        self.grade_btn.pack(side="left", padx=10)
-        
-        # Label con información
-        self.info_label = ctk.CTkLabel(control_frame,
-                                      text="Presione 'Iniciar Cámara' para comenzar",
-                                      font=ctk.CTkFont(size=12))
-        self.info_label.pack(side="left", padx=20)
-        
-        # Frame para la vista de cámara
-        camera_frame = ctk.CTkFrame(self.main_frame)
-        camera_frame.pack(fill="both", expand=True, pady=10)
-        
-        # Label para mostrar el video
-        self.camera_label = ctk.CTkLabel(camera_frame, text="")
-        self.camera_label.pack(expand=True, padx=20, pady=20)
-        
-        # Frame inferior con resultados
-        self.results_frame = ctk.CTkFrame(self.main_frame)
-        self.results_frame.pack(fill="x", pady=10)
-        
-        results_title = ctk.CTkLabel(self.results_frame,
-                                    text="Resultados de la Calificación",
-                                    font=ctk.CTkFont(size=16, weight="bold"))
-        results_title.pack(pady=10)
-        
-        self.results_text = ctk.CTkTextbox(self.results_frame, height=150)
-        self.results_text.pack(fill="x", padx=20, pady=10)
-    
-    def start_camera(self):
-        """Inicia la cámara"""
-        if self.camera_running:
-            return
+                                            width=180)
+        self.load_folder_btn.pack(side="left", padx=10)
 
+        self.clear_queue_btn = ctk.CTkButton(buttons_frame,
+                                            text="🗑️ Limpiar Lista",
+                                            command=self.clear_queue,
+                                            height=40,
+                                            width=180,
+                                            fg_color="gray",
+                                            hover_color="darkgray")
+        self.clear_queue_btn.pack(side="left", padx=10)
+
+        # Área de drag & drop
+        self.drop_area = ctk.CTkFrame(upload_frame, height=100, border_width=2,
+                                     border_color="gray")
+        self.drop_area.pack(fill="x", padx=20, pady=10)
+
+        drop_label = ctk.CTkLabel(self.drop_area,
+                                 text="⬇️ Arrastra archivos PDF o carpetas aquí\n" +
+                                      "(o usa los botones de arriba)",
+                                 font=ctk.CTkFont(size=14))
+        drop_label.pack(expand=True, pady=30)
+
+        # ===== SECCIÓN MEDIA: LISTA DE PDFs =====
+        list_frame = ctk.CTkFrame(self.main_frame)
+        list_frame.pack(fill="both", expand=True, pady=10)
+
+        list_title = ctk.CTkLabel(list_frame,
+                                 text="Lista de PDFs a Procesar",
+                                 font=ctk.CTkFont(size=14, weight="bold"))
+        list_title.pack(pady=5)
+
+        # Scrollable frame para lista de PDFs
+        self.pdf_list_frame = ctk.CTkScrollableFrame(list_frame, height=200)
+        self.pdf_list_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # Label para cuando está vacía
+        self.empty_list_label = ctk.CTkLabel(self.pdf_list_frame,
+                                            text="No hay PDFs cargados",
+                                            font=ctk.CTkFont(size=12),
+                                            text_color="gray")
+        self.empty_list_label.pack(pady=20)
+
+        # ===== SECCIÓN INFERIOR: PROCESAMIENTO =====
+        process_frame = ctk.CTkFrame(self.main_frame)
+        process_frame.pack(fill="x", pady=10)
+
+        # Botón de procesar
+        self.process_btn = ctk.CTkButton(process_frame,
+                                        text="▶️ Procesar Todos",
+                                        command=self.start_processing,
+                                        height=50,
+                                        width=200,
+                                        font=ctk.CTkFont(size=16, weight="bold"),
+                                        fg_color="green",
+                                        hover_color="darkgreen",
+                                        state="disabled")
+        self.process_btn.pack(pady=10)
+
+        # Barra de progreso
+        self.progress_bar = ctk.CTkProgressBar(process_frame, width=600)
+        self.progress_bar.pack(pady=5)
+        self.progress_bar.set(0)
+
+        # Label de estado
+        self.status_label = ctk.CTkLabel(process_frame,
+                                        text="",
+                                        font=ctk.CTkFont(size=12))
+        self.status_label.pack(pady=5)
+
+        # ===== RESULTADOS =====
+        results_frame = ctk.CTkFrame(self.main_frame)
+        results_frame.pack(fill="both", expand=True, pady=10)
+
+        results_title = ctk.CTkLabel(results_frame,
+                                    text="Resultados del Procesamiento",
+                                    font=ctk.CTkFont(size=14, weight="bold"))
+        results_title.pack(pady=5)
+
+        self.results_text = ctk.CTkTextbox(results_frame, height=150,
+                                          font=ctk.CTkFont(family="Courier", size=11))
+        self.results_text.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # Configurar drag & drop
+        self.setup_drag_drop()
+
+    def setup_drag_drop(self):
+        """Configura el drag & drop para el área de carga"""
         try:
-            # Usar la cámara seleccionada por el usuario
-            self.camera = cv2.VideoCapture(self.selected_camera_index)
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-
-            if not self.camera.isOpened():
-                raise Exception(f"No se pudo abrir la cámara {self.selected_camera_index}")
-
-            self.camera_running = True
-            self.start_camera_btn.configure(state="disabled")
-            self.stop_camera_btn.configure(state="normal")
-            self.grade_btn.configure(state="normal")
-            self.camera_selector.configure(state="disabled")  # Deshabilitar selector mientras cámara activa
-            self.info_label.configure(text=f"Cámara {self.selected_camera_index} activa - Acerque la hoja de respuestas")
-
-            # Iniciar thread para actualizar video
-            self.update_camera()
-
+            # Intentar configurar drag & drop
+            self.drop_area.drop_target_register(DND_FILES)
+            self.drop_area.dnd_bind('<<Drop>>', self.on_drop)
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo iniciar la cámara:\n{str(e)}")
-            self.stop_camera()
-    
-    def stop_camera(self):
-        """Detiene la cámara"""
-        self.camera_running = False
+            # Si falla (tkinterdnd2 no disponible), solo mostrar mensaje
+            print(f"⚠️ Drag & drop no disponible: {e}")
 
-        if self.camera:
-            self.camera.release()
-            self.camera = None
+    def on_drop(self, event):
+        """Maneja el evento de soltar archivos/carpetas"""
+        # Procesar paths (pueden venir entre {} en Windows)
+        files = self.parse_drop_files(event.data)
 
-        self.start_camera_btn.configure(state="normal")
-        self.stop_camera_btn.configure(state="disabled")
-        self.grade_btn.configure(state="disabled")
-        self.camera_selector.configure(state="readonly")  # Habilitar selector nuevamente
-        self.info_label.configure(text="Cámara detenida")
-        self.camera_label.configure(image="", text="Cámara detenida")
-    
-    def update_camera(self):
-        """Actualiza el frame de la cámara"""
-        if not self.camera_running:
+        pdf_files = []
+        for file_path in files:
+            path = Path(file_path)
+            if path.is_file() and path.suffix.lower() == '.pdf':
+                pdf_files.append(str(path))
+            elif path.is_dir():
+                # Buscar PDFs en la carpeta
+                pdfs_in_folder = list(path.glob('*.pdf')) + list(path.glob('*.PDF'))
+                pdf_files.extend([str(p) for p in pdfs_in_folder])
+
+        if pdf_files:
+            self.add_pdfs_to_queue(pdf_files)
+        else:
+            messagebox.showwarning("Sin PDFs", "No se encontraron archivos PDF")
+
+    def parse_drop_files(self, data):
+        """Parsea los archivos del evento drop"""
+        # En Windows, los paths pueden venir entre {}
+        files = []
+        current = ""
+        in_braces = False
+
+        for char in data:
+            if char == '{':
+                in_braces = True
+            elif char == '}':
+                in_braces = False
+                if current:
+                    files.append(current)
+                    current = ""
+            elif char == ' ' and not in_braces:
+                if current:
+                    files.append(current)
+                    current = ""
+            else:
+                current += char
+
+        if current:
+            files.append(current)
+
+        return files
+
+    def load_pdf_files(self):
+        """Abre diálogo para seleccionar archivos PDF"""
+        files = filedialog.askopenfilenames(
+            title="Seleccionar PDFs de Hojas de Respuestas",
+            filetypes=[("Archivos PDF", "*.pdf"), ("Todos los archivos", "*.*")]
+        )
+
+        if files:
+            self.add_pdfs_to_queue(list(files))
+
+    def load_pdf_folder(self):
+        """Abre diálogo para seleccionar carpeta con PDFs"""
+        folder = filedialog.askdirectory(title="Seleccionar Carpeta con PDFs")
+
+        if folder:
+            folder_path = Path(folder)
+            pdf_files = list(folder_path.glob('*.pdf')) + list(folder_path.glob('*.PDF'))
+
+            if pdf_files:
+                self.add_pdfs_to_queue([str(p) for p in pdf_files])
+            else:
+                messagebox.showwarning("Sin PDFs",
+                                      f"No se encontraron archivos PDF en:\n{folder}")
+
+    def add_pdfs_to_queue(self, pdf_paths: List[str]):
+        """Agrega PDFs a la cola de procesamiento"""
+        # Evitar duplicados
+        existing_paths = {item['path'] for item in self.pdf_queue}
+        new_pdfs = [p for p in pdf_paths if p not in existing_paths]
+
+        if not new_pdfs:
+            messagebox.showinfo("Info", "Todos los PDFs ya están en la lista")
             return
-        
-        ret, frame = self.camera.read()
-        
-        if ret:
-            self.current_frame = frame.copy()
-            
-            # TODO: Aquí se implementará la detección de marcadores ArUco
-            # y el overlay de respuestas
-            
-            # Convertir frame para mostrar
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame_rgb)
-            
-            # Redimensionar para ajustar a la ventana
-            img.thumbnail((800, 600), Image.Resampling.LANCZOS)
-            
-            imgtk = ImageTk.PhotoImage(image=img)
-            self.camera_label.imgtk = imgtk
-            self.camera_label.configure(image=imgtk, text="")
-        
-        # Programar siguiente actualización
-        if self.camera_running:
-            self.parent.after(30, self.update_camera)
-    
-    def grade_current_sheet(self):
-        """Califica la hoja de respuestas actual"""
+
+        # Agregar a la cola
+        for pdf_path in new_pdfs:
+            self.pdf_queue.append({
+                'path': pdf_path,
+                'filename': Path(pdf_path).name,
+                'status': 'pending',  # pending, processing, success, error
+                'result': None
+            })
+
+        # Actualizar interfaz
+        self.update_pdf_list()
+        self.process_btn.configure(state="normal")
+
+        messagebox.showinfo("PDFs Cargados",
+                           f"Se agregaron {len(new_pdfs)} PDFs a la cola\n" +
+                           f"Total en cola: {len(self.pdf_queue)}")
+
+    def clear_queue(self):
+        """Limpia la cola de PDFs"""
+        if not self.pdf_queue:
+            return
+
+        if messagebox.askyesno("Confirmar",
+                              f"¿Eliminar {len(self.pdf_queue)} PDFs de la cola?"):
+            self.pdf_queue = []
+            self.update_pdf_list()
+            self.process_btn.configure(state="disabled")
+            self.results_text.delete("1.0", "end")
+
+    def update_pdf_list(self):
+        """Actualiza la visualización de la lista de PDFs"""
+        # Limpiar lista actual
+        for widget in self.pdf_list_frame.winfo_children():
+            widget.destroy()
+
+        if not self.pdf_queue:
+            self.empty_list_label = ctk.CTkLabel(self.pdf_list_frame,
+                                                text="No hay PDFs cargados",
+                                                font=ctk.CTkFont(size=12),
+                                                text_color="gray")
+            self.empty_list_label.pack(pady=20)
+            return
+
+        # Mostrar cada PDF
+        for idx, item in enumerate(self.pdf_queue, 1):
+            # Frame para cada PDF
+            item_frame = ctk.CTkFrame(self.pdf_list_frame)
+            item_frame.pack(fill="x", pady=2, padx=5)
+
+            # Emoji de estado
+            status_emoji = {
+                'pending': '⏳',
+                'processing': '⚙️',
+                'success': '✅',
+                'error': '❌'
+            }.get(item['status'], '❓')
+
+            # Label con información
+            label_text = f"{idx}. {status_emoji} {item['filename']}"
+            label = ctk.CTkLabel(item_frame, text=label_text, anchor="w")
+            label.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+
+            # Botón para eliminar (solo si está pendiente)
+            if item['status'] == 'pending':
+                remove_btn = ctk.CTkButton(item_frame,
+                                          text="❌",
+                                          width=30,
+                                          command=lambda i=idx-1: self.remove_pdf(i))
+                remove_btn.pack(side="right", padx=5)
+
+    def remove_pdf(self, index: int):
+        """Elimina un PDF de la cola"""
+        if 0 <= index < len(self.pdf_queue):
+            self.pdf_queue.pop(index)
+            self.update_pdf_list()
+
+            if not self.pdf_queue:
+                self.process_btn.configure(state="disabled")
+
+    def start_processing(self):
+        """Inicia el procesamiento por lotes de PDFs"""
+        # Verificar que haya calibración
+        if not self.processors_ready:
+            messagebox.showerror("Error",
+                               "Sistema no calibrado. Ejecute:\n" +
+                               "python calibrate_from_pdf.py <hoja_blanca.pdf>")
+            return
+
         # Verificar configuración
         if self.app_data.get('num_questions', 0) == 0:
             messagebox.showerror("Error", MSG_INVALID_CONFIG)
             return
-        
+
         if not self.app_data.get('answer_key'):
-            messagebox.showerror("Error", "Debe configurar la pauta de respuestas")
+            answer = messagebox.askyesno("Sin Pauta",
+                                        "No hay pauta de respuestas configurada.\n\n" +
+                                        "¿Desea continuar solo con detección (sin calificar)?")
+            if not answer:
+                return
+
+        # Verificar que haya PDFs pendientes
+        pending = [item for item in self.pdf_queue if item['status'] == 'pending']
+        if not pending:
+            messagebox.showinfo("Info", "No hay PDFs pendientes para procesar")
             return
-        
-        if not self.app_data.get('excel_handler'):
-            messagebox.showerror("Error", "Debe cargar un archivo Excel")
-            return
-        
-        if self.current_frame is None:
-            messagebox.showerror("Error", MSG_NO_SHEET_DETECTED)
-            return
-        
-        # TODO: Aquí se implementará toda la lógica de:
-        # 1. Detección de marcadores ArUco
-        # 2. Corrección de perspectiva
-        # 3. Detección de matrícula
-        # 4. Detección de respuestas marcadas
-        # 5. Comparación con pauta
-        # 6. Cálculo de nota
-        # 7. Guardado en Excel
-        
-        # Por ahora, mostrar mensaje de que está en desarrollo
+
+        # Deshabilitar controles
+        self.processing = True
+        self.process_btn.configure(state="disabled")
+        self.load_files_btn.configure(state="disabled")
+        self.load_folder_btn.configure(state="disabled")
+        self.clear_queue_btn.configure(state="disabled")
+
+        # Limpiar resultados anteriores
         self.results_text.delete("1.0", "end")
-        self.results_text.insert("1.0", 
-            "🚧 Función en desarrollo 🚧\n\n" +
-            "Esta función implementará:\n" +
-            "- Detección de marcadores ArUco\n" +
-            "- Lectura de matrícula del estudiante\n" +
-            "- Detección de respuestas marcadas\n" +
-            "- Overlay visual (verde/rojo/amarillo)\n" +
-            "- Cálculo automático de nota\n" +
-            "- Guardado en Excel\n"
-        )
-        
-        messagebox.showinfo("Información", 
-                           "La funcionalidad de calificación está en desarrollo.\n" +
-                           "Próximos pasos: implementar detección ArUco y OMR.")
+        self.current_results = []
+
+        # Iniciar procesamiento en thread separado
+        thread = threading.Thread(target=self.process_all_pdfs, daemon=True)
+        thread.start()
+
+    def process_all_pdfs(self):
+        """Procesa todos los PDFs de la cola (ejecuta en thread separado)"""
+        pending = [item for item in self.pdf_queue if item['status'] == 'pending']
+        total = len(pending)
+
+        for idx, item in enumerate(pending, 1):
+            # Actualizar estado
+            item['status'] = 'processing'
+            self.parent.after(0, self.update_pdf_list)
+            self.parent.after(0, lambda i=idx, t=total:
+                            self.status_label.configure(
+                                text=f"Procesando {i}/{t}: {item['filename']}"))
+
+            # Procesar PDF
+            result = self.process_single_pdf(item['path'])
+            item['result'] = result
+            item['status'] = 'success' if result['success'] else 'error'
+
+            # Actualizar progreso
+            progress = idx / total
+            self.parent.after(0, lambda p=progress: self.progress_bar.set(p))
+            self.parent.after(0, self.update_pdf_list)
+
+            # Agregar resultado
+            self.current_results.append(result)
+            self.parent.after(0, lambda r=result: self.append_result(r))
+
+        # Finalizar
+        self.parent.after(0, self.finish_processing)
+
+    def process_single_pdf(self, pdf_path: str) -> Dict:
+        """Procesa un solo PDF y retorna los resultados"""
+        result = {
+            'pdf_path': pdf_path,
+            'filename': Path(pdf_path).name,
+            'success': False,
+            'matricula': None,
+            'respuestas': {},
+            'correctas': 0,
+            'incorrectas': 0,
+            'nota': 0.0,
+            'confidence': 0.0,
+            'message': '',
+            'saved_to_excel': False
+        }
+
+        try:
+            # Paso 1: Convertir PDF a imagen
+            image = self.pdf_processor.pdf_to_image(pdf_path)
+            if image is None:
+                result['message'] = "Error al convertir PDF a imagen"
+                return result
+
+            # Paso 2: Detectar ArUco y corregir perspectiva
+            process_result = self.image_processor.process_answer_sheet(image)
+            if not process_result['success']:
+                result['message'] = process_result['message']
+                return result
+
+            # Paso 3: Detección OMR
+            detection_result = self.omr_detector.detect_answer_sheet(
+                process_result['preprocessed']
+            )
+
+            # Extraer matrícula
+            result['matricula'] = detection_result['matricula'].get('matricula', 'N/A')
+            result['respuestas'] = detection_result['respuestas'].get('respuestas', {})
+            result['confidence'] = detection_result.get('overall_confidence', 0.0)
+
+            # Paso 4: Calificar si hay pauta
+            if self.app_data.get('answer_key'):
+                # Comparar respuestas con la pauta
+                answer_key = self.app_data['answer_key']
+                correctas = 0
+                incorrectas = 0
+
+                for pregunta, respuesta in result['respuestas'].items():
+                    if respuesta is None:
+                        continue  # Pregunta sin responder
+
+                    if pregunta in answer_key:
+                        if respuesta == answer_key[pregunta]:
+                            correctas += 1
+                        else:
+                            incorrectas += 1
+
+                result['correctas'] = correctas
+                result['incorrectas'] = incorrectas
+
+                # Calcular nota usando GradeCalculator
+                num_questions = self.app_data.get('num_questions', 100)
+                grade_calc = GradeCalculator(
+                    max_score=num_questions,
+                    passing_percentage=self.app_data.get('passing_percentage', 60.0),
+                    min_grade=self.app_data.get('min_grade', 1.0),
+                    max_grade=self.app_data.get('max_grade', 7.0),
+                    passing_grade=self.app_data.get('passing_grade', 4.0)
+                )
+
+                result['nota'] = grade_calc.calculate_grade(correctas)
+
+                # Paso 5: Guardar en Excel si está configurado
+                if self.app_data.get('excel_handler') and result['matricula'] != 'N/A':
+                    excel_handler = self.app_data['excel_handler']
+                    save_result = excel_handler.save_grade(
+                        matricula=result['matricula'],
+                        grade=result['nota'],
+                        test_name=self.app_data.get('test_name', 'Prueba')
+                    )
+                    result['saved_to_excel'] = save_result['success']
+                    if not save_result['success']:
+                        result['message'] = save_result['message']
+
+            result['success'] = True
+            result['message'] = "Procesado exitosamente"
+
+        except Exception as e:
+            result['message'] = f"Error: {str(e)}"
+
+        return result
+
+    def append_result(self, result: Dict):
+        """Agrega un resultado al área de texto"""
+        status = "✅" if result['success'] else "❌"
+        text = f"\n{'='*80}\n"
+        text += f"{status} {result['filename']}\n"
+        text += f"{'='*80}\n"
+
+        if result['success']:
+            text += f"Matrícula: {result['matricula']}\n"
+            text += f"Confianza: {result['confidence']:.1f}%\n"
+
+            if result['nota'] > 0:
+                text += f"Correctas: {result['correctas']} | " \
+                       f"Incorrectas: {result['incorrectas']}\n"
+                text += f"Nota: {result['nota']:.1f}\n"
+
+                if result['saved_to_excel']:
+                    text += "💾 Guardado en Excel\n"
+                else:
+                    text += f"⚠️ No guardado: {result['message']}\n"
+        else:
+            text += f"❌ Error: {result['message']}\n"
+
+        self.results_text.insert("end", text)
+        self.results_text.see("end")  # Scroll al final
+
+    def finish_processing(self):
+        """Finaliza el procesamiento y muestra resumen"""
+        self.processing = False
+
+        # Habilitar controles
+        self.load_files_btn.configure(state="normal")
+        self.load_folder_btn.configure(state="normal")
+        self.clear_queue_btn.configure(state="normal")
+
+        # Verificar si quedan PDFs pendientes
+        pending = [item for item in self.pdf_queue if item['status'] == 'pending']
+        if pending:
+            self.process_btn.configure(state="normal")
+
+        # Mostrar resumen
+        total = len(self.current_results)
+        successful = sum(1 for r in self.current_results if r['success'])
+        failed = total - successful
+
+        summary = f"\n{'='*80}\n"
+        summary += "RESUMEN FINAL\n"
+        summary += f"{'='*80}\n"
+        summary += f"Total procesados: {total}\n"
+        summary += f"Exitosos: {successful}\n"
+        summary += f"Con errores: {failed}\n"
+
+        if self.app_data.get('answer_key'):
+            saved = sum(1 for r in self.current_results if r.get('saved_to_excel'))
+            summary += f"Guardados en Excel: {saved}\n"
+
+        self.results_text.insert("end", summary)
+        self.status_label.configure(text="✅ Procesamiento completado")
+
+        messagebox.showinfo("Completado",
+                          f"Procesamiento finalizado\n\n" +
+                          f"Exitosos: {successful}/{total}\n" +
+                          f"Con errores: {failed}/{total}")

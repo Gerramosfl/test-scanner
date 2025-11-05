@@ -1,11 +1,13 @@
 # Interfaz gráfica
 customtkinter==5.2.1
 pillow==10.1.0
+tkinterdnd2==0.3.0  # Para drag & drop de archivos
 
-# Procesamiento de imágenes
+# Procesamiento de imágenes y PDFs
 opencv-python==4.8.1.78
 opencv-contrib-python==4.8.1.78
 numpy==1.24.3
+PyMuPDF==1.23.8
 
 # Manejo de Excel
 openpyxl==3.1.2
