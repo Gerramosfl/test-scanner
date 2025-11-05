@@ -498,10 +498,17 @@ class GradingTab:
                 image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
                 image_path = output_dir / image_filename
 
-                # Guardar imagen
-                cv2.imwrite(str(image_path), overlay)
-                result['image_saved'] = True
+                # Guardar la ruta para usar después
                 result['image_path'] = str(image_path)
+
+                # IMPORTANTE: Solo guardar imagen si NO necesita revisión manual
+                # Si necesita revisión, la imagen se guardará DESPUÉS de las correcciones
+                if not result['needs_review']:
+                    cv2.imwrite(str(image_path), overlay)
+                    result['image_saved'] = True
+                else:
+                    # No guardar todavía, se guardará después de la revisión manual
+                    result['image_saved'] = False
 
             except Exception as e:
                 # Si falla el guardado de imagen, continuar con el procesamiento
@@ -606,7 +613,14 @@ class GradingTab:
             # Mostrar información de imagen guardada
             if result.get('image_saved'):
                 image_name = Path(result['image_path']).name
-                text += f"🖼️ Imagen guardada: {image_name}\n"
+                # Indicar si fue guardada después de revisión manual
+                if 'revisión manual' in result.get('message', ''):
+                    text += f"🖼️ Imagen guardada (con correcciones manuales): {image_name}\n"
+                else:
+                    text += f"🖼️ Imagen guardada: {image_name}\n"
+            elif result.get('needs_review') and result.get('image_path'):
+                # Tiene ruta pero no se guardó porque necesita revisión
+                text += f"🖼️ Imagen pendiente (se guardará después de revisión manual)\n"
         else:
             text += f"❌ Error: {result['message']}\n"
 

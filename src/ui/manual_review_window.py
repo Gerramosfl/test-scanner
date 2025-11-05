@@ -581,12 +581,17 @@ class ManualReviewWindow(ctk.CTkToplevel):
         sheet['result']['nota'] = grade_calc.calculate_grade(correctas)
 
     def save_updated_image(self, sheet: Dict):
-        """Guarda la imagen de overlay actualizada"""
+        """Guarda la imagen de overlay actualizada con todas las correcciones"""
         try:
             if sheet['result'].get('image_path'):
+                # Guardar la imagen con las correcciones visualizadas
                 cv2.imwrite(sheet['result']['image_path'], self.current_image_bgr)
+                # Actualizar flag de imagen guardada
+                sheet['result']['image_saved'] = True
+                print(f"✓ Imagen con correcciones guardada: {sheet['result']['image_path']}")
         except Exception as e:
-            print(f"Error al guardar imagen actualizada: {e}")
+            sheet['result']['image_saved'] = False
+            print(f"❌ Error al guardar imagen actualizada: {e}")
 
     def skip_current(self):
         """Omite la hoja actual sin guardar"""
