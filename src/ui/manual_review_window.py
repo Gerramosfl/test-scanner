@@ -246,15 +246,58 @@ class ManualReviewWindow(ctk.CTkToplevel):
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
 
     def on_image_click(self, event):
-        """Maneja clicks en la imagen para seleccionar respuestas"""
+        """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
         # Obtener coordenadas del click en la imagen (considerando scroll)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
 
-        # Buscar si el click fue cerca de algún círculo de respuesta
         calibration = self.omr_detector.calibration_data
-        respuestas_circles = calibration['respuestas']
 
+        # Primero verificar si el click fue en un círculo de matrícula
+        matricula_circles = calibration['matricula']
+        clicked_matricula = None
+        min_distance_matricula = float('inf')
+
+        for circle in matricula_circles:
+            x, y = circle['x'], circle['y']
+            radius = circle['radius']
+
+            # Calcular distancia del click al centro del círculo
+            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+
+            # Si está dentro del círculo y es el más cercano
+            if distance <= radius * 1.5 and distance < min_distance_matricula:
+                clicked_matricula = circle
+                min_distance_matricula = distance
+
+        if clicked_matricula:
+            # Usuario hizo click en un círculo de matrícula
+            columna = clicked_matricula['columna']
+            digito = clicked_matricula['digito']
+
+            # Actualizar matrícula
+            # Convertir matrícula actual a lista de dígitos
+            matricula_list = list(self.edited_matricula) if len(self.edited_matricula) == 10 else ['0'] * 10
+
+            # Actualizar el dígito en la columna correspondiente (columna empieza en 1)
+            matricula_list[columna - 1] = str(digito)
+
+            # Convertir de vuelta a string
+            self.edited_matricula = ''.join(matricula_list)
+
+            # Actualizar entry
+            self.matricula_entry.delete(0, "end")
+            self.matricula_entry.insert(0, self.edited_matricula)
+
+            # Regenerar imagen con overlay actualizado
+            self.regenerate_overlay()
+
+            # Mostrar feedback
+            self.show_feedback(f"Matrícula col {columna}: {digito}")
+            return
+
+        # Si no fue click en matrícula, buscar en círculos de respuesta
+        respuestas_circles = calibration['respuestas']
         clicked_circle = None
         min_distance = float('inf')
 
@@ -290,16 +333,69 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Obtener sheet actual
             sheet = self.sheets_to_review[self.current_index]
 
+            # Actualizar details de respuestas para incluir correcciones manuales
+            original_details = sheet['detection_result']['respuestas'].get('details', {})
+            updated_details = {}
+
+            # Para cada respuesta editada, crear o actualizar su detail
+            for pregunta, respuesta in self.edited_respuestas.items():
+                if pregunta in original_details:
+                    # Si ya existía, actualizar
+                    updated_details[pregunta] = original_details[pregunta].copy()
+                else:
+                    # Si no existía (fue agregada manualmente), crear detail nuevo
+                    updated_details[pregunta] = {
+                        'status': 'detected',  # Marcar como detectado
+                        'confidence': 100.0,   # Alta confianza (corrección manual)
+                        'manually_corrected': True
+                    }
+
+            # Copiar detalles de preguntas no editadas
+            for pregunta, detail in original_details.items():
+                if pregunta not in updated_details:
+                    updated_details[pregunta] = detail
+
+            # Actualizar matrícula y sus detalles
+            matricula_detection = sheet['detection_result']['matricula'].copy()
+            matricula_detection['matricula'] = self.edited_matricula
+
+            # Crear detalles de matrícula para visualización
+            original_matricula_details = matricula_detection.get('details', {})
+            matricula_details = {}
+
+            # Para cada columna de la matrícula, crear o actualizar su detail
+            if len(self.edited_matricula) == 10:
+                for col_idx, digito_char in enumerate(self.edited_matricula):
+                    col_num = col_idx + 1  # Columnas empiezan en 1
+                    col_key = f'col_{col_num}'
+
+                    try:
+                        digito = int(digito_char)
+                        matricula_details[col_key] = {
+                            'digito': digito,
+                            'confidence': 100.0,
+                            'manually_corrected': True
+                        }
+                    except ValueError:
+                        # Si el carácter no es un dígito, mantener el original si existe
+                        if col_key in original_matricula_details:
+                            matricula_details[col_key] = original_matricula_details[col_key]
+
+                matricula_detection['details'] = matricula_details
+
+            if self.edited_matricula != sheet['result']['matricula']:
+                matricula_detection['manually_corrected'] = True
+
             # Crear detection_result modificado con respuestas editadas
             detection_result = {
-                'matricula': sheet['detection_result']['matricula'],
+                'matricula': matricula_detection,
                 'respuestas': {
-                    'respuestas': self.edited_respuestas,
-                    'details': sheet['detection_result']['respuestas'].get('details', {}),
-                    'confidence': sheet['detection_result']['respuestas'].get('confidence', 0),
+                    'respuestas': self.edited_respuestas.copy(),
+                    'details': updated_details,
+                    'confidence': 100.0,  # Alta confianza por corrección manual
                     'success': True
                 },
-                'overall_confidence': sheet['detection_result']['overall_confidence'],
+                'overall_confidence': 100.0,  # Alta confianza por corrección manual
                 'success': True
             }
 
@@ -409,6 +505,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                       "La matrícula no tiene 10 dígitos. ¿Continuar de todos modos?"):
                 return
 
+        # Actualizar matrícula editada
+        self.edited_matricula = new_matricula
+
         # Actualizar resultado
         sheet = self.sheets_to_review[self.current_index]
         sheet['result']['matricula'] = new_matricula
@@ -417,6 +516,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Recalcular nota
         self.recalculate_grade(sheet)
 
+        # IMPORTANTE: Regenerar overlay con todas las correcciones antes de guardar
+        self.regenerate_overlay()
+
         # Guardar en Excel
         if self.on_save_callback:
             success = self.on_save_callback(sheet)
@@ -424,7 +526,7 @@ class ManualReviewWindow(ctk.CTkToplevel):
                 messagebox.showerror("Error", "No se pudo guardar en Excel")
                 return
 
-        # Guardar imagen actualizada
+        # Guardar imagen actualizada (con todas las correcciones visualizadas)
         self.save_updated_image(sheet)
 
         # Marcar como revisada
