@@ -155,3 +155,11 @@ temp/
 !examples/*.xls
 capturas/
 pruebas_procesadas/
+# Archivos temporales de calibración y pruebas
+calibration_image_from_pdf.jpg
+calibration_visualization.jpg
+result_*.jpg
+hoja_blanca_escaneada.pdf
+*.pdf
+!examples/hoja_respuestas.pdf
+!examples/*.pdf

@@ -77,8 +77,9 @@ class OMRDetector:
         Returns:
             Porcentaje de píxeles oscuros (0-100)
         """
-        # Usar un radio más pequeño (50% del original) para evitar detectar círculos vecinos
-        effective_radius = int(radius * 0.5)
+        # Con escáner de alta resolución (300 DPI), podemos usar un radio mayor
+        # 0.7 = 70% del radio para buena precisión sin interferencia de círculos vecinos
+        effective_radius = int(radius * 0.7)
 
         # Crear máscara circular
         height, width = image.shape
@@ -131,7 +132,10 @@ class OMRDetector:
 
     def detect_matricula(self, image: np.ndarray) -> Dict:
         """
-        Detecta el número de matrícula marcado en la hoja.
+        Detecta el número de matrícula marcado en la hoja usando comparación relativa.
+
+        En lugar de usar umbral absoluto, compara todos los círculos de cada columna
+        y selecciona el más oscuro (el marcado con bolígrafo).
 
         Args:
             image: Imagen preprocesada en escala de grises
@@ -155,6 +159,10 @@ class OMRDetector:
         matricula_circles = self.calibration_data['matricula']
         detected_digits = []
 
+        # Umbral de diferencia mínima (15%) para considerar que un círculo está marcado
+        # Si un círculo es 15% más oscuro que los demás, es el marcado
+        MIN_DIFFERENCE_PERCENTAGE = 15.0
+
         # Procesar cada columna (10 columnas para 10 dígitos)
         for col in range(1, MATRICULA_DIGITS + 1):
             # Obtener círculos de esta columna
@@ -164,40 +172,42 @@ class OMRDetector:
                 result['errors'].append(f"No se encontraron círculos para columna {col}")
                 continue
 
-            # Analizar cada dígito (0-9) en esta columna
-            marks = []
+            # Medir el porcentaje de relleno de TODOS los círculos de esta columna
+            fill_percentages = []
             for circle in col_circles:
-                is_marked, fill_pct, status = self.is_circle_marked(
+                fill_pct = self.calculate_fill_percentage(
                     image,
                     circle['x'],
                     circle['y'],
                     circle['radius']
                 )
+                fill_percentages.append({
+                    'digito': circle['digito'],
+                    'fill_percentage': fill_pct
+                })
 
-                if is_marked:
-                    marks.append({
-                        'digito': circle['digito'],
-                        'fill_percentage': fill_pct,
-                        'status': status
-                    })
+            # Ordenar por porcentaje de relleno (mayor a menor)
+            fill_percentages.sort(key=lambda x: x['fill_percentage'], reverse=True)
 
-            # Validar que haya exactamente una marca
-            if len(marks) == 0:
-                result['errors'].append(f"Columna {col}: Sin marca detectada")
-                detected_digits.append('?')
-            elif len(marks) == 1:
-                detected_digits.append(str(marks[0]['digito']))
-                result['details'][f'col_{col}'] = marks[0]
-            else:
-                result['errors'].append(f"Columna {col}: Múltiples marcas detectadas")
-                # Usar la marca con mayor porcentaje de relleno
-                best_mark = max(marks, key=lambda m: m['fill_percentage'])
-                detected_digits.append(str(best_mark['digito']))
+            # El círculo más oscuro es el candidato
+            darkest = fill_percentages[0]
+            second_darkest = fill_percentages[1] if len(fill_percentages) > 1 else {'fill_percentage': 0}
+
+            # Verificar que el más oscuro sea SIGNIFICATIVAMENTE más oscuro que el segundo
+            difference = darkest['fill_percentage'] - second_darkest['fill_percentage']
+
+            if difference >= MIN_DIFFERENCE_PERCENTAGE:
+                # Hay una marca clara
+                detected_digits.append(str(darkest['digito']))
                 result['details'][f'col_{col}'] = {
-                    'selected': best_mark,
-                    'all_marks': marks,
-                    'warning': 'multiple_marks'
+                    'digito': darkest['digito'],
+                    'fill_percentage': darkest['fill_percentage'],
+                    'difference': difference
                 }
+            else:
+                # No hay diferencia suficiente (posiblemente sin marcar o marca ambigua)
+                result['errors'].append(f"Columna {col}: Marca ambigua o sin marcar (diferencia: {difference:.1f}%)")
+                detected_digits.append('?')
 
         # Construir matrícula
         result['matricula'] = ''.join(detected_digits)
@@ -213,7 +223,10 @@ class OMRDetector:
 
     def detect_respuestas(self, image: np.ndarray) -> Dict:
         """
-        Detecta las respuestas marcadas en la hoja.
+        Detecta las respuestas marcadas en la hoja usando comparación relativa.
+
+        En lugar de usar umbral absoluto, compara todos los círculos de cada pregunta
+        y selecciona el más oscuro (el marcado con bolígrafo).
 
         Args:
             image: Imagen preprocesada en escala de grises
@@ -235,7 +248,10 @@ class OMRDetector:
         }
 
         respuestas_circles = self.calibration_data['respuestas']
-        alternatives = ['A', 'B', 'C', 'D', 'E']
+
+        # Umbral de diferencia mínima (15%) para considerar que un círculo está marcado
+        # Si un círculo es 15% más oscuro que los demás, es el marcado
+        MIN_DIFFERENCE_PERCENTAGE = 15.0
 
         # Procesar cada pregunta (1-100)
         for pregunta in range(1, 101):
@@ -246,51 +262,56 @@ class OMRDetector:
                 result['errors'].append(f"No se encontraron círculos para pregunta {pregunta}")
                 continue
 
-            # Analizar cada alternativa
-            marks = []
+            # Medir el porcentaje de relleno de TODAS las alternativas de esta pregunta
+            fill_percentages = []
             for circle in pregunta_circles:
-                is_marked, fill_pct, status = self.is_circle_marked(
+                fill_pct = self.calculate_fill_percentage(
                     image,
                     circle['x'],
                     circle['y'],
                     circle['radius']
                 )
+                fill_percentages.append({
+                    'alternativa': circle['alternativa'],
+                    'fill_percentage': fill_pct
+                })
 
-                if is_marked:
-                    marks.append({
-                        'alternativa': circle['alternativa'],
-                        'fill_percentage': fill_pct,
-                        'status': status
-                    })
+            # Ordenar por porcentaje de relleno (mayor a menor)
+            fill_percentages.sort(key=lambda x: x['fill_percentage'], reverse=True)
 
-            # Validar que haya exactamente una marca
-            if len(marks) == 0:
-                result['errors'].append(f"Pregunta {pregunta}: Sin respuesta")
-                result['respuestas'][pregunta] = None
-                result['details'][pregunta] = {'status': 'empty'}
-            elif len(marks) == 1:
-                result['respuestas'][pregunta] = marks[0]['alternativa']
+            # El círculo más oscuro es el candidato
+            darkest = fill_percentages[0]
+            second_darkest = fill_percentages[1] if len(fill_percentages) > 1 else {'fill_percentage': 0}
+
+            # Verificar que el más oscuro sea SIGNIFICATIVAMENTE más oscuro que el segundo
+            difference = darkest['fill_percentage'] - second_darkest['fill_percentage']
+
+            if difference >= MIN_DIFFERENCE_PERCENTAGE:
+                # Hay una marca clara
+                result['respuestas'][pregunta] = darkest['alternativa']
                 result['details'][pregunta] = {
                     'status': 'ok',
-                    'mark': marks[0]
+                    'alternativa': darkest['alternativa'],
+                    'fill_percentage': darkest['fill_percentage'],
+                    'difference': difference
                 }
             else:
-                result['errors'].append(f"Pregunta {pregunta}: Múltiples respuestas")
-                # Usar la marca con mayor porcentaje de relleno
-                best_mark = max(marks, key=lambda m: m['fill_percentage'])
-                result['respuestas'][pregunta] = best_mark['alternativa']
+                # No hay diferencia suficiente (posiblemente sin marcar o marca ambigua)
+                result['respuestas'][pregunta] = None
                 result['details'][pregunta] = {
-                    'status': 'multiple_marks',
-                    'selected': best_mark,
-                    'all_marks': marks
+                    'status': 'empty',
+                    'difference': difference
                 }
+                # Solo reportar error si la diferencia es muy pequeña (posible múltiple marca)
+                if difference < 10.0:
+                    result['errors'].append(f"Pregunta {pregunta}: Marca ambigua (diferencia: {difference:.1f}%)")
 
         # Calcular confianza
         answered = sum(1 for r in result['respuestas'].values() if r is not None)
         result['confidence'] = (answered / 100) * 100
 
         # Determinar éxito
-        result['success'] = answered == 100 and len([e for e in result['errors'] if 'Múltiples' in e]) == 0
+        result['success'] = answered >= 90  # Aceptamos si al menos 90% están respondidas
 
         return result
 

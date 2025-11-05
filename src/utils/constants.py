@@ -17,9 +17,10 @@ PAPER_SIZE = "LETTER"  # Tamaño de papel (Carta)
 PAPER_WIDTH_MM = 215.9
 PAPER_HEIGHT_MM = 279.4
 
-# Configuración de detección OMR
-MIN_FILL_PERCENTAGE = 60  # Porcentaje mínimo de relleno para considerar marcado
-MAX_FILL_PERCENTAGE = 95  # Porcentaje máximo (para detectar sobre-marcado)
+# Configuración de detección OMR (optimizado para escáner 300 DPI)
+# NOTA: Los círculos tienen texto impreso (~20-30% oscuro), solo círculos MARCADOS con bolígrafo deben superar este umbral
+MIN_FILL_PERCENTAGE = 65  # Porcentaje mínimo de relleno para considerar marcado (debe superar el texto impreso)
+MAX_FILL_PERCENTAGE = 98  # Porcentaje máximo (para detectar sobre-marcado)
 
 # Colores para overlay visual (BGR para OpenCV)
 COLOR_CORRECT = (0, 255, 0)      # Verde

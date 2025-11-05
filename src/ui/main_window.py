@@ -73,9 +73,5 @@ class MainWindow(ctk.CTk):
                 self.app_data['excel_handler'].close()
             except:
                 pass
-        
-        # Cerrar la cámara si está activa
-        if hasattr(self.grading_tab, 'stop_camera'):
-            self.grading_tab.stop_camera()
-        
+
         self.destroy()
