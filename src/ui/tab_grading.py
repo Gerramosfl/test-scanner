@@ -429,7 +429,9 @@ class GradingTab:
             'nota': 0.0,
             'confidence': 0.0,
             'message': '',
-            'saved_to_excel': False
+            'saved_to_excel': False,
+            'image_saved': False,
+            'image_path': None
         }
 
         try:
@@ -455,7 +457,43 @@ class GradingTab:
             result['respuestas'] = detection_result['respuestas'].get('respuestas', {})
             result['confidence'] = detection_result.get('overall_confidence', 0.0)
 
-            # Paso 4: Calificar si hay pauta
+            # Paso 4: Generar y guardar imagen con overlay visual
+            try:
+                # Generar overlay visual
+                overlay = self.omr_detector.create_visual_overlay(
+                    process_result['warped_image'],
+                    detection_result,
+                    answer_key=self.app_data.get('answer_key')
+                )
+
+                # Determinar dónde guardar la imagen
+                if self.app_data.get('excel_handler'):
+                    # Guardar en la misma carpeta que el Excel
+                    excel_path = self.app_data['excel_handler'].filepath
+                    output_dir = Path(excel_path).parent
+                else:
+                    # Guardar en la carpeta del PDF si no hay Excel configurado
+                    output_dir = Path(pdf_path).parent
+
+                # Crear nombre de archivo: {matricula}_{nombre_prueba}.jpg
+                test_name = self.app_data.get('test_name', 'Prueba')
+                # Limpiar nombre de prueba para que sea válido en sistema de archivos
+                safe_test_name = "".join(c for c in test_name if c.isalnum() or c in (' ', '_', '-')).strip()
+                image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+                image_path = output_dir / image_filename
+
+                # Guardar imagen
+                cv2.imwrite(str(image_path), overlay)
+                result['image_saved'] = True
+                result['image_path'] = str(image_path)
+
+            except Exception as e:
+                # Si falla el guardado de imagen, continuar con el procesamiento
+                result['image_saved'] = False
+                result['image_path'] = None
+                print(f"⚠️ Error al guardar imagen overlay: {e}")
+
+            # Paso 5: Calificar si hay pauta
             if self.app_data.get('answer_key'):
                 # Comparar respuestas con la pauta
                 answer_key = self.app_data['answer_key']
@@ -487,7 +525,7 @@ class GradingTab:
 
                 result['nota'] = grade_calc.calculate_grade(correctas)
 
-                # Paso 5: Guardar en Excel si está configurado
+                # Paso 6: Guardar en Excel si está configurado
                 if self.app_data.get('excel_handler') and result['matricula'] != 'N/A':
                     excel_handler = self.app_data['excel_handler']
                     save_result = excel_handler.save_grade(
@@ -527,6 +565,11 @@ class GradingTab:
                     text += "💾 Guardado en Excel\n"
                 else:
                     text += f"⚠️ No guardado: {result['message']}\n"
+
+            # Mostrar información de imagen guardada
+            if result.get('image_saved'):
+                image_name = Path(result['image_path']).name
+                text += f"🖼️ Imagen guardada: {image_name}\n"
         else:
             text += f"❌ Error: {result['message']}\n"
 
@@ -562,6 +605,11 @@ class GradingTab:
         if self.app_data.get('answer_key'):
             saved = sum(1 for r in self.current_results if r.get('saved_to_excel'))
             summary += f"Guardados en Excel: {saved}\n"
+
+        # Información de imágenes guardadas
+        images_saved = sum(1 for r in self.current_results if r.get('image_saved'))
+        if images_saved > 0:
+            summary += f"Imágenes con overlay guardadas: {images_saved}\n"
 
         self.results_text.insert("end", summary)
         self.status_label.configure(text="✅ Procesamiento completado")
