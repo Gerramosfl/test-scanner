@@ -68,30 +68,44 @@ class ExcelHandler:
     def find_or_create_test_column(self, test_name):
         """
         Encuentra o crea una columna para la prueba especificada
-        
+
         Args:
             test_name: Nombre de la prueba
-        
+
         Returns:
             int: Número de columna
         """
-        # Buscar si ya existe una columna con este nombre
-        for col in range(3, self.sheet.max_column + 2):
+        # Primero buscar si ya existe una columna con este nombre
+        # Buscar hasta max_column + 5 para asegurar que revisamos todas las columnas posibles
+        max_col_to_check = max(self.sheet.max_column + 5, 10)  # Revisar al menos hasta columna J
+
+        for col in range(3, max_col_to_check):
             cell_value = self.sheet.cell(1, col).value
             if cell_value == test_name:
                 return col
-        
-        # Si no existe, crear nueva columna
-        new_col = self.sheet.max_column + 1
-        
-        # Agregar encabezado con formato
+
+        # Si no existe, buscar la primera columna vacía empezando desde columna C (3)
+        for col in range(3, max_col_to_check):
+            cell_value = self.sheet.cell(1, col).value
+            if cell_value is None or cell_value == "":
+                # Columna vacía encontrada, usarla
+                header_cell = self.sheet.cell(1, col)
+                header_cell.value = test_name
+                header_cell.font = Font(bold=True, size=12)
+                header_cell.alignment = Alignment(horizontal='center', vertical='center')
+                header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4",
+                                               fill_type="solid")
+                return col
+
+        # Si todas las columnas están ocupadas, usar la siguiente
+        new_col = max_col_to_check
         header_cell = self.sheet.cell(1, new_col)
         header_cell.value = test_name
         header_cell.font = Font(bold=True, size=12)
         header_cell.alignment = Alignment(horizontal='center', vertical='center')
-        header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", 
+        header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4",
                                        fill_type="solid")
-        
+
         return new_col
     
     def check_existing_grade(self, matricula, test_name):
