@@ -4,7 +4,6 @@ Pestaña de calificación con procesamiento por lotes de PDFs escaneados
 
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-from tkinterdnd2 import DND_FILES, TkinterDnD
 import cv2
 from PIL import Image, ImageTk
 import threading
@@ -101,16 +100,16 @@ class GradingTab:
                                             hover_color="darkgray")
         self.clear_queue_btn.pack(side="left", padx=10)
 
-        # Área de drag & drop
-        self.drop_area = ctk.CTkFrame(upload_frame, height=100, border_width=2,
-                                     border_color="gray")
-        self.drop_area.pack(fill="x", padx=20, pady=10)
+        # Área informativa de carga
+        self.info_area = ctk.CTkFrame(upload_frame, height=100, border_width=2,
+                                      border_color="gray")
+        self.info_area.pack(fill="x", padx=20, pady=10)
 
-        drop_label = ctk.CTkLabel(self.drop_area,
-                                 text="⬇️ Arrastra archivos PDF o carpetas aquí\n" +
-                                      "(o usa los botones de arriba)",
-                                 font=ctk.CTkFont(size=14))
-        drop_label.pack(expand=True, pady=30)
+        info_label = ctk.CTkLabel(self.info_area,
+                                  text="📁 Usa los botones de arriba para agregar archivos PDF\n" +
+                                       "Puedes agregar PDFs individuales o carpetas completas",
+                                  font=ctk.CTkFont(size=14))
+        info_label.pack(expand=True, pady=30)
 
         # ===== SECCIÓN MEDIA: LISTA DE PDFs =====
         list_frame = ctk.CTkFrame(self.main_frame)
@@ -171,66 +170,6 @@ class GradingTab:
         self.results_text = ctk.CTkTextbox(results_frame, height=150,
                                           font=ctk.CTkFont(family="Courier", size=11))
         self.results_text.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Configurar drag & drop
-        self.setup_drag_drop()
-
-    def setup_drag_drop(self):
-        """Configura el drag & drop para el área de carga"""
-        try:
-            # Intentar configurar drag & drop
-            self.drop_area.drop_target_register(DND_FILES)
-            self.drop_area.dnd_bind('<<Drop>>', self.on_drop)
-        except Exception as e:
-            # Si falla (tkinterdnd2 no disponible), solo mostrar mensaje
-            print(f"⚠️ Drag & drop no disponible: {e}")
-
-    def on_drop(self, event):
-        """Maneja el evento de soltar archivos/carpetas"""
-        # Procesar paths (pueden venir entre {} en Windows)
-        files = self.parse_drop_files(event.data)
-
-        pdf_files = []
-        for file_path in files:
-            path = Path(file_path)
-            if path.is_file() and path.suffix.lower() == '.pdf':
-                pdf_files.append(str(path))
-            elif path.is_dir():
-                # Buscar PDFs en la carpeta
-                pdfs_in_folder = list(path.glob('*.pdf')) + list(path.glob('*.PDF'))
-                pdf_files.extend([str(p) for p in pdfs_in_folder])
-
-        if pdf_files:
-            self.add_pdfs_to_queue(pdf_files)
-        else:
-            messagebox.showwarning("Sin PDFs", "No se encontraron archivos PDF")
-
-    def parse_drop_files(self, data):
-        """Parsea los archivos del evento drop"""
-        # En Windows, los paths pueden venir entre {}
-        files = []
-        current = ""
-        in_braces = False
-
-        for char in data:
-            if char == '{':
-                in_braces = True
-            elif char == '}':
-                in_braces = False
-                if current:
-                    files.append(current)
-                    current = ""
-            elif char == ' ' and not in_braces:
-                if current:
-                    files.append(current)
-                    current = ""
-            else:
-                current += char
-
-        if current:
-            files.append(current)
-
-        return files
 
     def load_pdf_files(self):
         """Abre diálogo para seleccionar archivos PDF"""
