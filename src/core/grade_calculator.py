@@ -1,6 +1,7 @@
 """
 Calculadora de notas según la escala chilena
 """
+from decimal import Decimal, ROUND_HALF_UP
 
 class GradeCalculator:
     """
@@ -59,8 +60,9 @@ class GradeCalculator:
                 (self.max_grade - self.passing_grade)
             )
         
-        # Redondear a 1 decimal
-        return round(grade, 1)
+        # Redondear a 1 decimal usando método chileno (round half up)
+        # Cuando la centésima es >= 5, redondea hacia arriba
+        return float(Decimal(str(grade)).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP))
     
     def get_grade_info(self, obtained_score):
         """
