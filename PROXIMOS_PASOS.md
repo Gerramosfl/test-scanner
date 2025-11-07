@@ -377,26 +377,42 @@ python calibrate_from_pdf.py hoja_blanca_escaneada.pdf
 
 ### Mejoras Sugeridas
 
-#### 1. Corrección Manual de Respuestas Ambiguas
-Agregar interfaz para revisar y corregir manualmente respuestas con baja confianza.
+#### 1. Corrección Manual de Respuestas Ambiguas ✅ IMPLEMENTADO
+- ✅ Interfaz modal para revisar respuestas con confianza < 99%
+- ✅ Click interactivo en círculos para corregir
+- ✅ Regeneración de overlay en tiempo real
+- ✅ Navegación entre múltiples hojas pendientes
+- ✅ Guardado automático en Excel tras correcciones
 
-#### 2. Exportación de Reportes
-- Generar reportes PDF con estadísticas de la prueba
-- Gráficos de distribución de notas
-- Análisis de preguntas más difíciles
+#### 2. Modo de Revisión Visual ✅ IMPLEMENTADO
+- ✅ Generación automática de imágenes con overlay visual
+- ✅ Colores: verde (correcta), rojo (incorrecta), amarillo (pauta)
+- ✅ Guardado como `{matricula}_{nombre_prueba}.jpg`
+- ✅ Se guarda después de revisión manual si es necesario
 
-#### 3. Modo de Revisión Visual
-Mostrar la imagen procesada con overlay para verificar visualmente la detección antes de guardar.
+#### 3. Soporte Multi-página ✅ IMPLEMENTADO (Noviembre 2025)
+- ✅ Permite PDFs con múltiples hojas (1 estudiante por página)
+- ✅ Detección automática del número de páginas
+- ✅ Display: "documento.pdf (5 páginas)"
+- ✅ Procesamiento independiente de cada página
+- ✅ Progreso detallado: "Página 3/30 (Total: 15/47)"
+- ✅ Imágenes con sufijos: `{matricula}_{prueba}_p3.jpg`
+- ✅ Mezcla de PDFs de 1 página con PDFs multi-página
+- ✅ Manejo de errores por página
 
-#### 4. Soporte Multi-página
-Permitir PDFs con múltiples hojas (un alumno por página).
+#### 4. Exportación de Reportes 🔵 PENDIENTE
+- [ ] Generar reportes PDF con estadísticas de la prueba
+- [ ] Gráficos de distribución de notas
+- [ ] Análisis de preguntas más difíciles
+- [ ] Estadísticas por pregunta y por estudiante
 
-#### 5. Historial de Calificaciones
-Base de datos para consultar historial completo de calificaciones por estudiante.
+#### 5. Historial de Calificaciones 🔵 PENDIENTE
+- [ ] Base de datos para consultar historial completo de calificaciones por estudiante
+- [ ] Seguimiento del progreso a lo largo del tiempo
 
-#### 6. Integración con Otros Formatos
-- Exportar a Google Sheets
-- Integración con sistemas de gestión escolar
+#### 6. Integración con Otros Formatos 🔵 PENDIENTE
+- [ ] Exportar a Google Sheets
+- [ ] Integración con sistemas de gestión escolar
 
 ---
 

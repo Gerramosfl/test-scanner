@@ -9,6 +9,7 @@ Test Scanner es una aplicación de escritorio que permite calificar automáticam
 ### Características principales
 
 - ✅ **Procesamiento por lotes**: Carga múltiples PDFs escaneados y procesa todos de una vez
+- ✅ **Soporte multi-página**: Un PDF puede contener múltiples hojas (1 estudiante por página)
 - ✅ **Detección automática**: Marcadores ArUco para corrección de perspectiva
 - ✅ **Identificación de estudiantes**: Número de matrícula de 10 dígitos
 - ✅ **100 preguntas**: Soporta hasta 100 preguntas con 5 alternativas (A, B, C, D, E)
@@ -240,6 +241,28 @@ Para más información: [Escala de Notas](https://escaladenotas.cl/?nmin=1.0&nma
 
 ## 🎨 Características Técnicas
 
+### Soporte multi-página (NUEVO)
+
+El sistema ahora soporta PDFs con múltiples páginas, donde cada página contiene la hoja de respuestas de un estudiante diferente:
+
+- **Detección automática**: Al cargar un PDF, el sistema detecta cuántas páginas tiene
+- **Display intuitivo**: Los PDFs multi-página muestran "(X páginas)" en la lista
+- **Procesamiento individual**: Cada página se procesa independientemente
+- **Progreso detallado**:
+  - PDF único: `"documento.pdf (5/20)"`
+  - Multi-página: `"pruebas.pdf - Página 3/30 (Total: 15/47)"`
+- **Imágenes con sufijo**: Para evitar sobrescritura, las imágenes de PDFs multi-página incluyen número de página:
+  - Página única: `2023456789_Prueba1.jpg`
+  - Multi-página: `2023456789_Prueba1_p3.jpg`
+- **Mezcla de formatos**: Soporta mezclar PDFs de 1 página con PDFs multi-página en la misma sesión
+- **Manejo de errores**: Si una página falla, las demás continúan procesándose normalmente
+
+**Caso de uso típico**:
+- Escanear 30 hojas de prueba → 1 PDF de 30 páginas
+- El sistema procesa automáticamente las 30 hojas
+- Genera 30 resultados + 30 imágenes independientes
+- Guarda 30 notas en Excel
+
 ### Detección OMR optimizada
 
 - **DPI**: 300 DPI para PDFs escaneados
@@ -291,6 +314,7 @@ Si tienes preguntas o sugerencias, por favor abre un issue en el repositorio.
 - [x] Desarrollo de las 3 pestañas de la interfaz (Configuración, Pauta, Calificación)
 - [x] Integración del cálculo de notas chileno con redondeo correcto
 - [x] Procesamiento por lotes de PDFs escaneados
+- [x] **Soporte multi-página** (PDFs con múltiples hojas, 1 estudiante por página)
 - [x] Sistema de revisión manual de respuestas ambiguas (confianza < 99%)
 - [x] Generación automática de imágenes con overlay visual
 - [x] Click interactivo para corrección manual de matrícula y respuestas

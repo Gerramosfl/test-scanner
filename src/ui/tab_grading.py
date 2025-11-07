@@ -196,7 +196,7 @@ class GradingTab:
                                       f"No se encontraron archivos PDF en:\n{folder}")
 
     def add_pdfs_to_queue(self, pdf_paths: List[str]):
-        """Agrega PDFs a la cola de procesamiento"""
+        """Agrega PDFs a la cola de procesamiento (soporta multi-página)"""
         # Evitar duplicados
         existing_paths = {item['path'] for item in self.pdf_queue}
         new_pdfs = [p for p in pdf_paths if p not in existing_paths]
@@ -206,12 +206,23 @@ class GradingTab:
             return
 
         # Agregar a la cola
+        total_pages = 0
         for pdf_path in new_pdfs:
+            # Detectar número de páginas
+            page_count = self.pdf_processor.get_page_count(pdf_path)
+            if page_count == 0:
+                print(f"Advertencia: No se pudo leer {Path(pdf_path).name}")
+                continue
+
+            total_pages += page_count
+
             self.pdf_queue.append({
                 'path': pdf_path,
                 'filename': Path(pdf_path).name,
                 'status': 'pending',  # pending, processing, success, error
-                'result': None
+                'result': None,
+                'page_count': page_count,
+                'is_multipage': page_count > 1
             })
 
         # Actualizar interfaz
@@ -220,7 +231,8 @@ class GradingTab:
 
         messagebox.showinfo("PDFs Cargados",
                            f"Se agregaron {len(new_pdfs)} PDFs a la cola\n" +
-                           f"Total en cola: {len(self.pdf_queue)}")
+                           f"Total páginas a procesar: {total_pages}\n" +
+                           f"Total PDFs en cola: {len(self.pdf_queue)}")
 
     def clear_queue(self):
         """Limpia la cola de PDFs"""
@@ -262,8 +274,9 @@ class GradingTab:
                 'error': '❌'
             }.get(item['status'], '❓')
 
-            # Label con información
-            label_text = f"{idx}. {status_emoji} {item['filename']}"
+            # Label con información (incluir número de páginas si es multi-página)
+            page_info = f" ({item['page_count']} páginas)" if item.get('is_multipage', False) else ""
+            label_text = f"{idx}. {status_emoji} {item['filename']}{page_info}"
             label = ctk.CTkLabel(item_frame, text=label_text, anchor="w")
             label.pack(side="left", fill="x", expand=True, padx=5, pady=5)
 
@@ -327,40 +340,72 @@ class GradingTab:
         thread.start()
 
     def process_all_pdfs(self):
-        """Procesa todos los PDFs de la cola (ejecuta en thread separado)"""
+        """Procesa todos los PDFs de la cola, incluyendo multi-página (ejecuta en thread separado)"""
         pending = [item for item in self.pdf_queue if item['status'] == 'pending']
-        total = len(pending)
 
-        for idx, item in enumerate(pending, 1):
-            # Actualizar estado
+        # Calcular total de páginas a procesar
+        total_pages = sum(item['page_count'] for item in pending)
+        processed_pages = 0
+
+        for pdf_idx, item in enumerate(pending, 1):
+            # Actualizar estado del PDF
             item['status'] = 'processing'
             self.parent.after(0, self.update_pdf_list)
-            self.parent.after(0, lambda i=idx, t=total:
-                            self.status_label.configure(
-                                text=f"Procesando {i}/{t}: {item['filename']}"))
 
-            # Procesar PDF
-            result = self.process_single_pdf(item['path'])
-            item['result'] = result
-            item['status'] = 'success' if result['success'] else 'error'
+            page_count = item['page_count']
+            pdf_results = []
 
-            # Actualizar progreso
-            progress = idx / total
-            self.parent.after(0, lambda p=progress: self.progress_bar.set(p))
+            # Procesar cada página del PDF
+            for page_num in range(page_count):
+                processed_pages += 1
+
+                # Actualizar status
+                if page_count > 1:
+                    status_text = f"Procesando {item['filename']} - Página {page_num + 1}/{page_count} (Total: {processed_pages}/{total_pages})"
+                else:
+                    status_text = f"Procesando {item['filename']} ({processed_pages}/{total_pages})"
+
+                self.parent.after(0, lambda t=status_text: self.status_label.configure(text=t))
+
+                # Procesar página individual
+                result = self.process_single_pdf(item['path'], page_num, page_count)
+                pdf_results.append(result)
+
+                # Actualizar progreso
+                progress = processed_pages / total_pages
+                self.parent.after(0, lambda p=progress: self.progress_bar.set(p))
+
+                # Agregar resultado
+                self.current_results.append(result)
+                self.parent.after(0, lambda r=result: self.append_result(r))
+
+            # Actualizar estado del PDF (success solo si todas las páginas fueron exitosas)
+            all_success = all(r['success'] for r in pdf_results)
+            item['result'] = pdf_results  # Guardar todos los resultados
+            item['status'] = 'success' if all_success else 'error'
             self.parent.after(0, self.update_pdf_list)
-
-            # Agregar resultado
-            self.current_results.append(result)
-            self.parent.after(0, lambda r=result: self.append_result(r))
 
         # Finalizar
         self.parent.after(0, self.finish_processing)
 
-    def process_single_pdf(self, pdf_path: str) -> Dict:
-        """Procesa un solo PDF y retorna los resultados"""
+    def process_single_pdf(self, pdf_path: str, page_number: int = 0, total_pages: int = 1) -> Dict:
+        """Procesa una página específica de un PDF y retorna los resultados
+
+        Args:
+            pdf_path: Ruta al archivo PDF
+            page_number: Número de página a procesar (0-indexed)
+            total_pages: Total de páginas en el PDF
+        """
+        # Nombre de archivo para display
+        filename = Path(pdf_path).name
+        if total_pages > 1:
+            filename = f"{filename} - Página {page_number + 1}/{total_pages}"
+
         result = {
             'pdf_path': pdf_path,
-            'filename': Path(pdf_path).name,
+            'filename': filename,
+            'page_number': page_number,
+            'total_pages': total_pages,
             'success': False,
             'matricula': None,
             'respuestas': {},
@@ -379,10 +424,10 @@ class GradingTab:
         }
 
         try:
-            # Paso 1: Convertir PDF a imagen
-            image = self.pdf_processor.pdf_to_image(pdf_path)
+            # Paso 1: Convertir PDF a imagen (página específica)
+            image = self.pdf_processor.pdf_to_image(pdf_path, page_number)
             if image is None:
-                result['message'] = "Error al convertir PDF a imagen"
+                result['message'] = f"Error al convertir página {page_number + 1} a imagen"
                 return result
 
             # Paso 2: Detectar ArUco y corregir perspectiva
@@ -431,10 +476,17 @@ class GradingTab:
                     output_dir = Path(pdf_path).parent
 
                 # Crear nombre de archivo: {matricula}_{nombre_prueba}.jpg
+                # Para PDFs multi-página, agregar sufijo de página
                 test_name = self.app_data.get('test_name', 'Prueba')
                 # Limpiar nombre de prueba para que sea válido en sistema de archivos
                 safe_test_name = "".join(c for c in test_name if c.isalnum() or c in (' ', '_', '-')).strip()
-                image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+
+                # Si es multi-página, agregar sufijo "_pX" para evitar sobrescritura
+                if total_pages > 1:
+                    image_filename = f"{result['matricula']}_{safe_test_name}_p{page_number + 1}.jpg"
+                else:
+                    image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+
                 image_path = output_dir / image_filename
 
                 # Guardar la ruta para usar después

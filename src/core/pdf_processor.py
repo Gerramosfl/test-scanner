@@ -110,6 +110,25 @@ class PDFProcessor:
 
         return results
 
+    def get_page_count(self, pdf_path: str) -> int:
+        """
+        Obtiene el número de páginas de un PDF.
+
+        Args:
+            pdf_path: Ruta al archivo PDF
+
+        Returns:
+            Número de páginas (0 si hay error)
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            page_count = doc.page_count
+            doc.close()
+            return page_count
+        except Exception as e:
+            print(f"Error al obtener páginas del PDF: {str(e)}")
+            return 0
+
     def get_pdf_info(self, pdf_path: str) -> dict:
         """
         Obtiene información de un archivo PDF.
@@ -173,8 +192,9 @@ class PDFProcessor:
         if info['page_count'] == 0:
             return False, "El PDF no contiene páginas"
 
+        # PDFs multi-página ahora son soportados
         if info['page_count'] > 1:
-            return True, f"Advertencia: PDF tiene {info['page_count']} páginas, se usará solo la primera"
+            return True, f"PDF válido ({info['page_count']} páginas)"
 
         return True, "PDF válido"
 
