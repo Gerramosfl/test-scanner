@@ -151,9 +151,14 @@ test-scanner/
 - ✅ Algoritmo comparativo (no umbral absoluto)
 - ✅ Sistema de confianza por círculo/pregunta/hoja
 - ✅ Detección de respuestas múltiples y ambiguas
+- ✅ **Detección inteligente de múltiples marcas**:
+  - Algoritmo de tres umbrales (50% mínimo, 15% diferencia, 20% rango)
+  - Prevención de falsos positivos por texto impreso
+  - Marca todas las alternativas detectadas en rojo
+  - Trata múltiples marcas como respuesta incorrecta
 - ✅ **Generación de overlay visual con colores:**
   - Verde: Respuesta correcta
-  - Rojo: Respuesta incorrecta
+  - Rojo: Respuesta incorrecta (incluye múltiples marcas)
   - Amarillo: Respuesta esperada según pauta
 - ✅ Guardado automático de imágenes: `{matricula}_{prueba}.jpg`
 - ✅ Sufijos para multi-página: `{matricula}_{prueba}_p3.jpg`

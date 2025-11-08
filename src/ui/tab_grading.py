@@ -280,13 +280,12 @@ class GradingTab:
             label = ctk.CTkLabel(item_frame, text=label_text, anchor="w")
             label.pack(side="left", fill="x", expand=True, padx=5, pady=5)
 
-            # Botón para eliminar (solo si está pendiente)
-            if item['status'] == 'pending':
-                remove_btn = ctk.CTkButton(item_frame,
-                                          text="❌",
-                                          width=30,
-                                          command=lambda i=idx-1: self.remove_pdf(i))
-                remove_btn.pack(side="right", padx=5)
+            # Botón para eliminar (disponible para todos los estados)
+            remove_btn = ctk.CTkButton(item_frame,
+                                      text="❌",
+                                      width=30,
+                                      command=lambda i=idx-1: self.remove_pdf(i))
+            remove_btn.pack(side="right", padx=5)
 
     def remove_pdf(self, index: int):
         """Elimina un PDF de la cola"""

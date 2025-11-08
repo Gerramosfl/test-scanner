@@ -17,6 +17,7 @@ Test Scanner es una aplicación de escritorio que permite calificar automáticam
   - 🟢 Verde: Respuesta correcta del estudiante
   - 🔴 Rojo: Respuesta incorrecta del estudiante
   - 🟡 Amarillo: Respuesta correcta según pauta (cuando el estudiante no marcó o marcó incorrectamente)
+- ✅ **Detección inteligente de múltiples marcas**: Identifica cuando un estudiante marca 2+ alternativas en una pregunta y las marca todas como incorrectas
 - ✅ **Imágenes con correcciones**: Genera automáticamente imágenes JPG con overlay visual, guardadas como `{matricula}_{nombre_prueba}.jpg`
 - ✅ **Revisión manual inteligente**: Para hojas con confianza < 99%, permite corrección manual interactiva antes de guardar
 - ✅ **Click para corregir**: Interfaz intuitiva donde puedes hacer click en los círculos para corregir matrícula y respuestas
@@ -269,6 +270,12 @@ El sistema ahora soporta PDFs con múltiples páginas, donde cada página contie
 - **Umbral de relleno**: 65% - 98% (excluye texto impreso en círculos, detecta solo marcas de bolígrafo)
 - **Confianza**: Sistema de confianza por círculo, pregunta y hoja completa
 - **Detección ambigua**: Identifica respuestas múltiples, marcas débiles o ausencia de marca
+- **Detección inteligente de múltiples marcas**:
+  - **Umbral mínimo**: 50% de relleno para confirmar intención de marcar
+  - **Diferencia mínima**: 15% para distinguir marcas únicas de múltiples
+  - **Rango máximo**: 20% desde la alternativa más oscura para identificar marcas similares
+  - **Prevención de falsos positivos**: Evita marcar alternativas que solo tienen texto impreso
+  - **Visualización**: Cuando se detectan múltiples marcas (2+), todas se marcan en rojo y se considera respuesta incorrecta
 
 ### Sistema de overlay visual
 
