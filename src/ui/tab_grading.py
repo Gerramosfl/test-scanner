@@ -4,7 +4,6 @@ Pestaña de calificación con procesamiento por lotes de PDFs escaneados
 
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-from tkinterdnd2 import DND_FILES, TkinterDnD
 import cv2
 from PIL import Image, ImageTk
 import threading
@@ -101,16 +100,16 @@ class GradingTab:
                                             hover_color="darkgray")
         self.clear_queue_btn.pack(side="left", padx=10)
 
-        # Área de drag & drop
-        self.drop_area = ctk.CTkFrame(upload_frame, height=100, border_width=2,
-                                     border_color="gray")
-        self.drop_area.pack(fill="x", padx=20, pady=10)
+        # Área informativa de carga
+        self.info_area = ctk.CTkFrame(upload_frame, height=100, border_width=2,
+                                      border_color="gray")
+        self.info_area.pack(fill="x", padx=20, pady=10)
 
-        drop_label = ctk.CTkLabel(self.drop_area,
-                                 text="⬇️ Arrastra archivos PDF o carpetas aquí\n" +
-                                      "(o usa los botones de arriba)",
-                                 font=ctk.CTkFont(size=14))
-        drop_label.pack(expand=True, pady=30)
+        info_label = ctk.CTkLabel(self.info_area,
+                                  text="📁 Usa los botones de arriba para agregar archivos PDF\n" +
+                                       "Puedes agregar PDFs individuales o carpetas completas",
+                                  font=ctk.CTkFont(size=14))
+        info_label.pack(expand=True, pady=30)
 
         # ===== SECCIÓN MEDIA: LISTA DE PDFs =====
         list_frame = ctk.CTkFrame(self.main_frame)
@@ -172,66 +171,6 @@ class GradingTab:
                                           font=ctk.CTkFont(family="Courier", size=11))
         self.results_text.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Configurar drag & drop
-        self.setup_drag_drop()
-
-    def setup_drag_drop(self):
-        """Configura el drag & drop para el área de carga"""
-        try:
-            # Intentar configurar drag & drop
-            self.drop_area.drop_target_register(DND_FILES)
-            self.drop_area.dnd_bind('<<Drop>>', self.on_drop)
-        except Exception as e:
-            # Si falla (tkinterdnd2 no disponible), solo mostrar mensaje
-            print(f"⚠️ Drag & drop no disponible: {e}")
-
-    def on_drop(self, event):
-        """Maneja el evento de soltar archivos/carpetas"""
-        # Procesar paths (pueden venir entre {} en Windows)
-        files = self.parse_drop_files(event.data)
-
-        pdf_files = []
-        for file_path in files:
-            path = Path(file_path)
-            if path.is_file() and path.suffix.lower() == '.pdf':
-                pdf_files.append(str(path))
-            elif path.is_dir():
-                # Buscar PDFs en la carpeta
-                pdfs_in_folder = list(path.glob('*.pdf')) + list(path.glob('*.PDF'))
-                pdf_files.extend([str(p) for p in pdfs_in_folder])
-
-        if pdf_files:
-            self.add_pdfs_to_queue(pdf_files)
-        else:
-            messagebox.showwarning("Sin PDFs", "No se encontraron archivos PDF")
-
-    def parse_drop_files(self, data):
-        """Parsea los archivos del evento drop"""
-        # En Windows, los paths pueden venir entre {}
-        files = []
-        current = ""
-        in_braces = False
-
-        for char in data:
-            if char == '{':
-                in_braces = True
-            elif char == '}':
-                in_braces = False
-                if current:
-                    files.append(current)
-                    current = ""
-            elif char == ' ' and not in_braces:
-                if current:
-                    files.append(current)
-                    current = ""
-            else:
-                current += char
-
-        if current:
-            files.append(current)
-
-        return files
-
     def load_pdf_files(self):
         """Abre diálogo para seleccionar archivos PDF"""
         files = filedialog.askopenfilenames(
@@ -257,7 +196,7 @@ class GradingTab:
                                       f"No se encontraron archivos PDF en:\n{folder}")
 
     def add_pdfs_to_queue(self, pdf_paths: List[str]):
-        """Agrega PDFs a la cola de procesamiento"""
+        """Agrega PDFs a la cola de procesamiento (soporta multi-página)"""
         # Evitar duplicados
         existing_paths = {item['path'] for item in self.pdf_queue}
         new_pdfs = [p for p in pdf_paths if p not in existing_paths]
@@ -267,12 +206,23 @@ class GradingTab:
             return
 
         # Agregar a la cola
+        total_pages = 0
         for pdf_path in new_pdfs:
+            # Detectar número de páginas
+            page_count = self.pdf_processor.get_page_count(pdf_path)
+            if page_count == 0:
+                print(f"Advertencia: No se pudo leer {Path(pdf_path).name}")
+                continue
+
+            total_pages += page_count
+
             self.pdf_queue.append({
                 'path': pdf_path,
                 'filename': Path(pdf_path).name,
                 'status': 'pending',  # pending, processing, success, error
-                'result': None
+                'result': None,
+                'page_count': page_count,
+                'is_multipage': page_count > 1
             })
 
         # Actualizar interfaz
@@ -281,7 +231,8 @@ class GradingTab:
 
         messagebox.showinfo("PDFs Cargados",
                            f"Se agregaron {len(new_pdfs)} PDFs a la cola\n" +
-                           f"Total en cola: {len(self.pdf_queue)}")
+                           f"Total páginas a procesar: {total_pages}\n" +
+                           f"Total PDFs en cola: {len(self.pdf_queue)}")
 
     def clear_queue(self):
         """Limpia la cola de PDFs"""
@@ -323,18 +274,18 @@ class GradingTab:
                 'error': '❌'
             }.get(item['status'], '❓')
 
-            # Label con información
-            label_text = f"{idx}. {status_emoji} {item['filename']}"
+            # Label con información (incluir número de páginas si es multi-página)
+            page_info = f" ({item['page_count']} páginas)" if item.get('is_multipage', False) else ""
+            label_text = f"{idx}. {status_emoji} {item['filename']}{page_info}"
             label = ctk.CTkLabel(item_frame, text=label_text, anchor="w")
             label.pack(side="left", fill="x", expand=True, padx=5, pady=5)
 
-            # Botón para eliminar (solo si está pendiente)
-            if item['status'] == 'pending':
-                remove_btn = ctk.CTkButton(item_frame,
-                                          text="❌",
-                                          width=30,
-                                          command=lambda i=idx-1: self.remove_pdf(i))
-                remove_btn.pack(side="right", padx=5)
+            # Botón para eliminar (disponible para todos los estados)
+            remove_btn = ctk.CTkButton(item_frame,
+                                      text="❌",
+                                      width=30,
+                                      command=lambda i=idx-1: self.remove_pdf(i))
+            remove_btn.pack(side="right", padx=5)
 
     def remove_pdf(self, index: int):
         """Elimina un PDF de la cola"""
@@ -388,40 +339,72 @@ class GradingTab:
         thread.start()
 
     def process_all_pdfs(self):
-        """Procesa todos los PDFs de la cola (ejecuta en thread separado)"""
+        """Procesa todos los PDFs de la cola, incluyendo multi-página (ejecuta en thread separado)"""
         pending = [item for item in self.pdf_queue if item['status'] == 'pending']
-        total = len(pending)
 
-        for idx, item in enumerate(pending, 1):
-            # Actualizar estado
+        # Calcular total de páginas a procesar
+        total_pages = sum(item['page_count'] for item in pending)
+        processed_pages = 0
+
+        for pdf_idx, item in enumerate(pending, 1):
+            # Actualizar estado del PDF
             item['status'] = 'processing'
             self.parent.after(0, self.update_pdf_list)
-            self.parent.after(0, lambda i=idx, t=total:
-                            self.status_label.configure(
-                                text=f"Procesando {i}/{t}: {item['filename']}"))
 
-            # Procesar PDF
-            result = self.process_single_pdf(item['path'])
-            item['result'] = result
-            item['status'] = 'success' if result['success'] else 'error'
+            page_count = item['page_count']
+            pdf_results = []
 
-            # Actualizar progreso
-            progress = idx / total
-            self.parent.after(0, lambda p=progress: self.progress_bar.set(p))
+            # Procesar cada página del PDF
+            for page_num in range(page_count):
+                processed_pages += 1
+
+                # Actualizar status
+                if page_count > 1:
+                    status_text = f"Procesando {item['filename']} - Página {page_num + 1}/{page_count} (Total: {processed_pages}/{total_pages})"
+                else:
+                    status_text = f"Procesando {item['filename']} ({processed_pages}/{total_pages})"
+
+                self.parent.after(0, lambda t=status_text: self.status_label.configure(text=t))
+
+                # Procesar página individual
+                result = self.process_single_pdf(item['path'], page_num, page_count)
+                pdf_results.append(result)
+
+                # Actualizar progreso
+                progress = processed_pages / total_pages
+                self.parent.after(0, lambda p=progress: self.progress_bar.set(p))
+
+                # Agregar resultado
+                self.current_results.append(result)
+                self.parent.after(0, lambda r=result: self.append_result(r))
+
+            # Actualizar estado del PDF (success solo si todas las páginas fueron exitosas)
+            all_success = all(r['success'] for r in pdf_results)
+            item['result'] = pdf_results  # Guardar todos los resultados
+            item['status'] = 'success' if all_success else 'error'
             self.parent.after(0, self.update_pdf_list)
-
-            # Agregar resultado
-            self.current_results.append(result)
-            self.parent.after(0, lambda r=result: self.append_result(r))
 
         # Finalizar
         self.parent.after(0, self.finish_processing)
 
-    def process_single_pdf(self, pdf_path: str) -> Dict:
-        """Procesa un solo PDF y retorna los resultados"""
+    def process_single_pdf(self, pdf_path: str, page_number: int = 0, total_pages: int = 1) -> Dict:
+        """Procesa una página específica de un PDF y retorna los resultados
+
+        Args:
+            pdf_path: Ruta al archivo PDF
+            page_number: Número de página a procesar (0-indexed)
+            total_pages: Total de páginas en el PDF
+        """
+        # Nombre de archivo para display
+        filename = Path(pdf_path).name
+        if total_pages > 1:
+            filename = f"{filename} - Página {page_number + 1}/{total_pages}"
+
         result = {
             'pdf_path': pdf_path,
-            'filename': Path(pdf_path).name,
+            'filename': filename,
+            'page_number': page_number,
+            'total_pages': total_pages,
             'success': False,
             'matricula': None,
             'respuestas': {},
@@ -440,10 +423,10 @@ class GradingTab:
         }
 
         try:
-            # Paso 1: Convertir PDF a imagen
-            image = self.pdf_processor.pdf_to_image(pdf_path)
+            # Paso 1: Convertir PDF a imagen (página específica)
+            image = self.pdf_processor.pdf_to_image(pdf_path, page_number)
             if image is None:
-                result['message'] = "Error al convertir PDF a imagen"
+                result['message'] = f"Error al convertir página {page_number + 1} a imagen"
                 return result
 
             # Paso 2: Detectar ArUco y corregir perspectiva
@@ -492,10 +475,17 @@ class GradingTab:
                     output_dir = Path(pdf_path).parent
 
                 # Crear nombre de archivo: {matricula}_{nombre_prueba}.jpg
+                # Para PDFs multi-página, agregar sufijo de página
                 test_name = self.app_data.get('test_name', 'Prueba')
                 # Limpiar nombre de prueba para que sea válido en sistema de archivos
                 safe_test_name = "".join(c for c in test_name if c.isalnum() or c in (' ', '_', '-')).strip()
-                image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+
+                # Si es multi-página, agregar sufijo "_pX" para evitar sobrescritura
+                if total_pages > 1:
+                    image_filename = f"{result['matricula']}_{safe_test_name}_p{page_number + 1}.jpg"
+                else:
+                    image_filename = f"{result['matricula']}_{safe_test_name}.jpg"
+
                 image_path = output_dir / image_filename
 
                 # Guardar la ruta para usar después

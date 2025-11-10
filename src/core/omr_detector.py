@@ -286,6 +286,10 @@ class OMRDetector:
             # Verificar que el más oscuro sea SIGNIFICATIVAMENTE más oscuro que el segundo
             difference = darkest['fill_percentage'] - second_darkest['fill_percentage']
 
+            # Umbral mínimo para considerar que hay intención de marcar (50%)
+            # Esto evita falsos positivos cuando ninguna alternativa está realmente marcada
+            MIN_FILL_THRESHOLD = 50.0
+
             if difference >= MIN_DIFFERENCE_PERCENTAGE:
                 # Hay una marca clara
                 result['respuestas'][pregunta] = darkest['alternativa']
@@ -296,15 +300,49 @@ class OMRDetector:
                     'difference': difference
                 }
             else:
-                # No hay diferencia suficiente (posiblemente sin marcar o marca ambigua)
-                result['respuestas'][pregunta] = None
-                result['details'][pregunta] = {
-                    'status': 'empty',
-                    'difference': difference
-                }
-                # Solo reportar error si la diferencia es muy pequeña (posible múltiple marca)
-                if difference < 10.0:
-                    result['errors'].append(f"Pregunta {pregunta}: Marca ambigua (diferencia: {difference:.1f}%)")
+                # Diferencia < 15%: puede ser múltiple marca o sin marca
+                # Verificar si el más oscuro supera el umbral mínimo
+                if darkest['fill_percentage'] >= MIN_FILL_THRESHOLD:
+                    # MÚLTIPLE MARCA: Hay al menos una marca real y poca diferencia
+                    # Identificar las alternativas que están MUY CERCANAS en intensidad a la más oscura
+                    # (dentro del 20% de diferencia respecto a la más oscura)
+                    MAX_RANGE_FROM_DARKEST = 20.0
+                    marked_alternatives = [
+                        fp['alternativa']
+                        for fp in fill_percentages
+                        if (darkest['fill_percentage'] - fp['fill_percentage']) <= MAX_RANGE_FROM_DARKEST
+                        and fp['fill_percentage'] >= MIN_FILL_THRESHOLD
+                    ]
+
+                    # Solo considerar múltiple marca si hay al menos 2 alternativas cercanas
+                    if len(marked_alternatives) >= 2:
+                        result['respuestas'][pregunta] = None  # Respuesta inválida
+                        result['details'][pregunta] = {
+                            'status': 'multiple',
+                            'marked_alternatives': marked_alternatives,
+                            'difference': difference,
+                            'fill_percentages': {fp['alternativa']: fp['fill_percentage'] for fp in fill_percentages}
+                        }
+                        result['errors'].append(
+                            f"Pregunta {pregunta}: Múltiple marca detectada ({', '.join(marked_alternatives)}, "
+                            f"diferencia: {difference:.1f}%)"
+                        )
+                    else:
+                        # Solo hay 1 marca clara (caso edge, tratar como respuesta única)
+                        result['respuestas'][pregunta] = darkest['alternativa']
+                        result['details'][pregunta] = {
+                            'status': 'ok',
+                            'alternativa': darkest['alternativa'],
+                            'fill_percentage': darkest['fill_percentage'],
+                            'difference': difference
+                        }
+                else:
+                    # SIN MARCA: Ninguna alternativa supera el umbral mínimo
+                    result['respuestas'][pregunta] = None
+                    result['details'][pregunta] = {
+                        'status': 'empty',
+                        'difference': difference
+                    }
 
         # Calcular confianza
         answered = sum(1 for r in result['respuestas'].values() if r is not None)
@@ -430,11 +468,13 @@ class OMRDetector:
                 if detail.get('status') == 'empty':
                     # Sin respuesta - no dibujar nada o dibujar gris muy tenue
                     continue
-                elif detail.get('status') == 'multiple_marks':
-                    # Múltiples marcas
-                    if alternativa == detected_alt:
-                        color = COLOR_MULTIPLE
+                elif detail.get('status') == 'multiple':
+                    # Múltiples marcas - marcar TODAS las alternativas marcadas en rojo
+                    marked_alternatives = detail.get('marked_alternatives', [])
+                    if alternativa in marked_alternatives:
+                        color = COLOR_INCORRECT
                         cv2.circle(overlay, (circle['x'], circle['y']), circle['radius'], color, 2)
+                    # NO dibujar círculo amarillo para la respuesta correcta
                 elif alternativa == detected_alt:
                     # Respuesta marcada
                     if answer_key and pregunta in answer_key:

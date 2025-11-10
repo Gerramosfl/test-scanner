@@ -40,6 +40,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.title("Revisión Manual de Hojas")
         self.geometry("1200x800")
 
+        # Hacer la ventana redimensionable y con botones min/max
+        self.resizable(True, True)
+
         # Hacer la ventana modal
         self.transient(parent)
         self.grab_set()
@@ -107,6 +110,10 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
         # Bind click en canvas
         self.canvas.bind("<Button-1>", self.on_image_click)
+
+        # Bind scroll con rueda del ratón
+        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
+        self.canvas.bind("<Shift-MouseWheel>", self.on_shift_mousewheel)
 
         # ===== PANEL DE CORRECCIÓN RÁPIDA =====
         correction_frame = ctk.CTkFrame(self)
@@ -245,6 +252,32 @@ class ManualReviewWindow(ctk.CTkToplevel):
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
 
+    def on_mousewheel(self, event):
+        """Maneja el scroll vertical con la rueda del ratón"""
+        # En Windows, event.delta es positivo para arriba, negativo para abajo
+        # Dividir por 120 para normalizar (Windows usa múltiplos de 120)
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def on_shift_mousewheel(self, event):
+        """Maneja el scroll horizontal con Shift + rueda del ratón"""
+        self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def draw_feedback_circle(self, x, y, radius):
+        """Dibuja un círculo verde temporal como feedback visual"""
+        # Dibujar círculo verde temporal
+        circle_id = self.canvas.create_oval(
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
+            outline="green",
+            width=3,
+            tags="feedback"
+        )
+
+        # Eliminar el círculo después de 300ms
+        self.after(300, lambda: self.canvas.delete("feedback"))
+
     def on_image_click(self, event):
         """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
         # Obtener coordenadas del click en la imagen (considerando scroll)
@@ -274,6 +307,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Usuario hizo click en un círculo de matrícula
             columna = clicked_matricula['columna']
             digito = clicked_matricula['digito']
+
+            # Dibujar feedback visual inmediato
+            self.draw_feedback_circle(clicked_matricula['x'], clicked_matricula['y'], clicked_matricula['radius'])
 
             # Actualizar matrícula
             # Convertir matrícula actual a lista de dígitos
@@ -318,6 +354,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
             pregunta = clicked_circle['pregunta']
             alternativa = clicked_circle['alternativa']
 
+            # Dibujar feedback visual inmediato
+            self.draw_feedback_circle(clicked_circle['x'], clicked_circle['y'], clicked_circle['radius'])
+
             # Actualizar respuesta
             self.edited_respuestas[pregunta] = alternativa
 
@@ -342,12 +381,17 @@ class ManualReviewWindow(ctk.CTkToplevel):
                 if pregunta in original_details:
                     # Si ya existía, actualizar
                     updated_details[pregunta] = original_details[pregunta].copy()
+                    updated_details[pregunta]['manually_corrected'] = True
                 else:
                     # Si no existía (fue agregada manualmente), crear detail nuevo
+                    # IMPORTANTE: Usar 'status': 'ok' para que create_visual_overlay dibuje el círculo
                     updated_details[pregunta] = {
-                        'status': 'detected',  # Marcar como detectado
+                        'status': 'ok',  # Estado OK para que se dibuje correctamente
+                        'alternativa': respuesta,  # Alternativa seleccionada
                         'confidence': 100.0,   # Alta confianza (corrección manual)
-                        'manually_corrected': True
+                        'manually_corrected': True,
+                        'fill_percentage': 100.0,  # Completamente marcado (manual)
+                        'difference': 100.0  # Diferencia máxima (manual)
                     }
 
             # Copiar detalles de preguntas no editadas
@@ -371,10 +415,16 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
                     try:
                         digito = int(digito_char)
+                        # Verificar si este dígito fue corregido manualmente
+                        is_corrected = (col_key not in original_matricula_details or
+                                      original_matricula_details[col_key].get('digito') != digito)
+
                         matricula_details[col_key] = {
                             'digito': digito,
                             'confidence': 100.0,
-                            'manually_corrected': True
+                            'manually_corrected': is_corrected,
+                            'fill_percentage': 100.0 if is_corrected else original_matricula_details.get(col_key, {}).get('fill_percentage', 100.0),
+                            'difference': 100.0 if is_corrected else original_matricula_details.get(col_key, {}).get('difference', 100.0)
                         }
                     except ValueError:
                         # Si el carácter no es un dígito, mantener el original si existe
