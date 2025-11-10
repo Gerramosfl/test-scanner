@@ -204,8 +204,23 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.matricula_entry.delete(0, "end")
         self.matricula_entry.insert(0, self.edited_matricula)
 
-        # Cargar respuestas (hacer una copia para editar)
-        self.edited_respuestas = sheet['result']['respuestas'].copy()
+        # Cargar respuestas - ahora como diccionario de SETS para soportar múltiples alternativas
+        # Formato: {pregunta: set(alternativas)}
+        self.edited_respuestas = {}
+        for pregunta, alternativa in sheet['result']['respuestas'].items():
+            if alternativa is not None:
+                # Verificar si es múltiple desde la detección original
+                detail = sheet['detection_result']['respuestas'].get('details', {}).get(pregunta, {})
+                if detail.get('status') == 'multiple':
+                    # Obtener todas las alternativas marcadas
+                    marked_alts = detail.get('marked_alternatives', [alternativa])
+                    self.edited_respuestas[pregunta] = set(marked_alts)
+                else:
+                    # Respuesta única
+                    self.edited_respuestas[pregunta] = {alternativa}
+            else:
+                # Sin respuesta
+                self.edited_respuestas[pregunta] = set()
 
         # Limpiar círculos manuales anteriores
         self.manual_circles = []
@@ -270,103 +285,20 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Configurar región de scroll
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
+            # Dibujar círculos iniciales (detecciones + correcciones manuales)
+            self.redraw_all_circles()
+
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
 
     def create_review_overlay(self, warped_image, detection_result):
         """
-        Crea overlay de REVISIÓN mostrando solo círculos verdes en detecciones automáticas
-        NO compara con la pauta, NO muestra colores de corrección
+        Retorna la imagen warped SIN CÍRCULOS
+        Los círculos se dibujarán en el canvas usando redraw_all_circles()
         """
-        # Copiar imagen para no modificar la original
-        overlay = warped_image.copy()
-
-        # Color verde para todas las detecciones
-        COLOR_DETECTED = (0, 255, 0)  # Verde
-
-        calibration = self.omr_detector.calibration_data
-
-        # ===== DIBUJAR MATRÍCULA DETECTADA =====
-        matricula_circles = calibration['matricula']
-        matricula_detection = detection_result['matricula']
-        matricula_str = matricula_detection.get('matricula', '')
-        matricula_details = matricula_detection.get('details', {})
-
-        if len(matricula_str) == 10:
-            for col_idx, digito_char in enumerate(matricula_str):
-                try:
-                    digito = int(digito_char)
-                    col_num = col_idx + 1
-                    col_key = f'col_{col_num}'
-
-                    # Encontrar el círculo correspondiente
-                    matching_circle = next(
-                        (c for c in matricula_circles
-                         if c['columna'] == col_num and c['digito'] == digito),
-                        None
-                    )
-
-                    if matching_circle:
-                        # Dibujar círculo verde
-                        cv2.circle(
-                            overlay,
-                            (matching_circle['x'], matching_circle['y']),
-                            matching_circle['radius'],
-                            COLOR_DETECTED,
-                            2
-                        )
-                except ValueError:
-                    continue
-
-        # ===== DIBUJAR RESPUESTAS DETECTADAS =====
-        respuestas_circles = calibration['respuestas']
-        respuestas_detected = detection_result['respuestas'].get('respuestas', {})
-        respuestas_details = detection_result['respuestas'].get('details', {})
-
-        for pregunta, alternativa in respuestas_detected.items():
-            if alternativa is None:
-                continue
-
-            detail = respuestas_details.get(pregunta, {})
-            status = detail.get('status', '')
-
-            # Solo dibujar si no es 'empty' o 'multiple'
-            if status == 'empty':
-                continue
-            elif status == 'multiple':
-                # En múltiples marcas, dibujar todas las alternativas detectadas en verde
-                marked_alternatives = detail.get('marked_alternatives', [])
-                for alt in marked_alternatives:
-                    matching_circle = next(
-                        (c for c in respuestas_circles
-                         if c['pregunta'] == pregunta and c['alternativa'] == alt),
-                        None
-                    )
-                    if matching_circle:
-                        cv2.circle(
-                            overlay,
-                            (matching_circle['x'], matching_circle['y']),
-                            matching_circle['radius'],
-                            COLOR_DETECTED,
-                            2
-                        )
-            else:
-                # Respuesta detectada normalmente - dibujar en verde
-                matching_circle = next(
-                    (c for c in respuestas_circles
-                     if c['pregunta'] == pregunta and c['alternativa'] == alternativa),
-                    None
-                )
-                if matching_circle:
-                    cv2.circle(
-                        overlay,
-                        (matching_circle['x'], matching_circle['y']),
-                        matching_circle['radius'],
-                        COLOR_DETECTED,
-                        2
-                    )
-
-        return overlay
+        # Simplemente retornar la imagen sin modificar
+        # NO dibujar círculos aquí para evitar duplicados
+        return warped_image.copy()
 
     def on_mousewheel(self, event):
         """Maneja el scroll vertical con la rueda del ratón"""
@@ -385,13 +317,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
         scaled_y = int(y * self.scale_factor)
         scaled_radius = int(radius * self.scale_factor)
 
-        # Dibujar círculo verde permanente
+        # Dibujar círculo verde brillante/fluorescente permanente
         circle_id = self.canvas.create_oval(
             scaled_x - scaled_radius,
             scaled_y - scaled_radius,
             scaled_x + scaled_radius,
             scaled_y + scaled_radius,
-            outline="green",
+            outline="#00FF00",  # Verde brillante/fluorescente (lime green)
             width=3,
             tags="manual_circle"
         )
@@ -404,8 +336,61 @@ class ManualReviewWindow(ctk.CTkToplevel):
             'radius': radius
         })
 
+    def redraw_all_circles(self):
+        """Redibuja TODOS los círculos verdes según el estado actual de edited_respuestas y edited_matricula"""
+        # Eliminar todos los círculos manuales existentes
+        self.canvas.delete("manual_circle")
+        self.manual_circles = []
+
+        calibration = self.omr_detector.calibration_data
+
+        # Redibujar círculos de MATRÍCULA
+        matricula_circles = calibration['matricula']
+        if len(self.edited_matricula) == 10:
+            for col_idx, digito_char in enumerate(self.edited_matricula):
+                if digito_char == '?':
+                    continue  # Saltar columnas sin dígito
+
+                try:
+                    digito = int(digito_char)
+                    col_num = col_idx + 1
+
+                    # Encontrar el círculo correspondiente
+                    matching_circle = next(
+                        (c for c in matricula_circles
+                         if c['columna'] == col_num and c['digito'] == digito),
+                        None
+                    )
+
+                    if matching_circle:
+                        self.draw_permanent_circle(
+                            matching_circle['x'],
+                            matching_circle['y'],
+                            matching_circle['radius']
+                        )
+                except ValueError:
+                    continue
+
+        # Redibujar círculos de RESPUESTAS
+        respuestas_circles = calibration['respuestas']
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            for alternativa in alternativas_set:
+                # Encontrar el círculo correspondiente
+                matching_circle = next(
+                    (c for c in respuestas_circles
+                     if c['pregunta'] == pregunta and c['alternativa'] == alternativa),
+                    None
+                )
+
+                if matching_circle:
+                    self.draw_permanent_circle(
+                        matching_circle['x'],
+                        matching_circle['y'],
+                        matching_circle['radius']
+                    )
+
     def on_image_click(self, event):
-        """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
+        """Maneja clicks en la imagen para seleccionar/deseleccionar respuestas o matrícula (TOGGLE)"""
         # Obtener coordenadas del click en el canvas (considerando scroll)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
@@ -438,26 +423,31 @@ class ManualReviewWindow(ctk.CTkToplevel):
             columna = clicked_matricula['columna']
             digito = clicked_matricula['digito']
 
-            # Dibujar círculo verde PERMANENTE
-            self.draw_permanent_circle(clicked_matricula['x'], clicked_matricula['y'],
-                                      clicked_matricula['radius'])
+            # TOGGLE: Verificar si este dígito ya está seleccionado en esta columna
+            matricula_list = list(self.edited_matricula) if len(self.edited_matricula) == 10 else ['?'] * 10
+            current_digit = matricula_list[columna - 1]
+
+            if current_digit == str(digito):
+                # Ya estaba seleccionado → DESMARCAR (poner '?')
+                matricula_list[columna - 1] = '?'
+                feedback_msg = f"Matrícula col {columna}: Desmarcado"
+            else:
+                # No estaba seleccionado → MARCAR
+                matricula_list[columna - 1] = str(digito)
+                feedback_msg = f"Matrícula col {columna}: {digito}"
 
             # Actualizar matrícula
-            # Convertir matrícula actual a lista de dígitos
-            matricula_list = list(self.edited_matricula) if len(self.edited_matricula) == 10 else ['0'] * 10
-
-            # Actualizar el dígito en la columna correspondiente (columna empieza en 1)
-            matricula_list[columna - 1] = str(digito)
-
-            # Convertir de vuelta a string
             self.edited_matricula = ''.join(matricula_list)
 
             # Actualizar entry
             self.matricula_entry.delete(0, "end")
             self.matricula_entry.insert(0, self.edited_matricula)
 
+            # Redibujar todos los círculos
+            self.redraw_all_circles()
+
             # Mostrar feedback
-            self.show_feedback(f"Matrícula col {columna}: {digito}")
+            self.show_feedback(feedback_msg)
             return
 
         # Si no fue click en matrícula, buscar en círculos de respuesta
@@ -482,15 +472,24 @@ class ManualReviewWindow(ctk.CTkToplevel):
             pregunta = clicked_circle['pregunta']
             alternativa = clicked_circle['alternativa']
 
-            # Dibujar círculo verde PERMANENTE
-            self.draw_permanent_circle(clicked_circle['x'], clicked_circle['y'],
-                                      clicked_circle['radius'])
+            # TOGGLE: Verificar si esta alternativa ya está en el set
+            if pregunta not in self.edited_respuestas:
+                self.edited_respuestas[pregunta] = set()
 
-            # Actualizar respuesta
-            self.edited_respuestas[pregunta] = alternativa
+            if alternativa in self.edited_respuestas[pregunta]:
+                # Ya estaba seleccionada → DESMARCAR (eliminar del set)
+                self.edited_respuestas[pregunta].remove(alternativa)
+                feedback_msg = f"P{pregunta}: {alternativa} desmarcado"
+            else:
+                # No estaba seleccionada → MARCAR (agregar al set)
+                self.edited_respuestas[pregunta].add(alternativa)
+                feedback_msg = f"P{pregunta}: {alternativa} marcado"
+
+            # Redibujar todos los círculos
+            self.redraw_all_circles()
 
             # Mostrar feedback
-            self.show_feedback(f"P{pregunta}: {alternativa}")
+            self.show_feedback(feedback_msg)
 
     def generate_final_overlay(self, sheet: Dict):
         """
@@ -501,24 +500,58 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Actualizar details de respuestas para incluir correcciones manuales
             original_details = sheet['detection_result']['respuestas'].get('details', {})
             updated_details = {}
+            final_respuestas = {}  # {pregunta: alternativa o None}
 
-            # Para cada respuesta editada, crear o actualizar su detail
-            for pregunta, respuesta in self.edited_respuestas.items():
-                if pregunta in original_details:
-                    # Si ya existía, actualizar
-                    updated_details[pregunta] = original_details[pregunta].copy()
-                    updated_details[pregunta]['manually_corrected'] = True
-                    updated_details[pregunta]['alternativa'] = respuesta
-                else:
-                    # Si no existía (fue agregada manualmente), crear detail nuevo
-                    # IMPORTANTE: Usar 'status': 'ok' para que create_visual_overlay dibuje el círculo
+            # Para cada pregunta editada, determinar la respuesta final
+            for pregunta, alternativas_set in self.edited_respuestas.items():
+                num_alternativas = len(alternativas_set)
+
+                if num_alternativas == 0:
+                    # Sin respuesta (se eliminaron todas las marcas)
+                    final_respuestas[pregunta] = None
                     updated_details[pregunta] = {
-                        'status': 'ok',  # Estado OK para que se dibuje correctamente
-                        'alternativa': respuesta,  # Alternativa seleccionada
-                        'confidence': 100.0,   # Alta confianza (corrección manual)
+                        'status': 'empty',
+                        'alternativa': None,
+                        'confidence': 100.0,
                         'manually_corrected': True,
-                        'fill_percentage': 100.0,  # Completamente marcado (manual)
-                        'difference': 100.0  # Diferencia máxima (manual)
+                        'fill_percentage': 0.0,
+                        'difference': 0.0
+                    }
+                elif num_alternativas == 1:
+                    # Respuesta única
+                    alternativa = list(alternativas_set)[0]
+                    final_respuestas[pregunta] = alternativa
+
+                    if pregunta in original_details:
+                        # Actualizar detail existente
+                        updated_details[pregunta] = original_details[pregunta].copy()
+                        updated_details[pregunta]['manually_corrected'] = True
+                        updated_details[pregunta]['alternativa'] = alternativa
+                        updated_details[pregunta]['status'] = 'ok'
+                    else:
+                        # Crear detail nuevo
+                        updated_details[pregunta] = {
+                            'status': 'ok',
+                            'alternativa': alternativa,
+                            'confidence': 100.0,
+                            'manually_corrected': True,
+                            'fill_percentage': 100.0,
+                            'difference': 100.0
+                        }
+                else:
+                    # Múltiples respuestas (2 o más)
+                    # Guardar la primera alternativa como respuesta principal (para compatibilidad)
+                    # Pero el detail indicará que son múltiples
+                    final_respuestas[pregunta] = list(alternativas_set)[0]
+
+                    updated_details[pregunta] = {
+                        'status': 'multiple',
+                        'alternativa': list(alternativas_set)[0],
+                        'marked_alternatives': list(alternativas_set),
+                        'confidence': 100.0,
+                        'manually_corrected': True,
+                        'fill_percentage': 100.0,
+                        'difference': 100.0
                     }
 
             # Copiar detalles de preguntas no editadas
@@ -567,7 +600,7 @@ class ManualReviewWindow(ctk.CTkToplevel):
             detection_result = {
                 'matricula': matricula_detection,
                 'respuestas': {
-                    'respuestas': self.edited_respuestas.copy(),
+                    'respuestas': final_respuestas,  # Usar final_respuestas en lugar de edited_respuestas
                     'details': updated_details,
                     'confidence': 100.0,  # Alta confianza por corrección manual
                     'success': True
@@ -624,35 +657,33 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                    f"Pregunta debe estar entre 1 y {num_questions}")
                 return
 
-            # Actualizar respuesta
-            self.edited_respuestas[question] = answer
+            # Actualizar respuesta (agregar al set)
+            if question not in self.edited_respuestas:
+                self.edited_respuestas[question] = set()
 
-            # Buscar el círculo correspondiente y dibujarlo
-            calibration = self.omr_detector.calibration_data
-            respuestas_circles = calibration['respuestas']
-            matching_circle = next(
-                (c for c in respuestas_circles
-                 if c['pregunta'] == question and c['alternativa'] == answer),
-                None
-            )
+            # TOGGLE: Si ya está, eliminar; si no está, agregar
+            if answer in self.edited_respuestas[question]:
+                self.edited_respuestas[question].remove(answer)
+                feedback_msg = f"P{question}: {answer} desmarcado"
+            else:
+                self.edited_respuestas[question].add(answer)
+                feedback_msg = f"P{question}: {answer} marcado"
 
-            if matching_circle:
-                # Dibujar círculo verde permanente
-                self.draw_permanent_circle(matching_circle['x'], matching_circle['y'],
-                                          matching_circle['radius'])
+            # Redibujar todos los círculos
+            self.redraw_all_circles()
 
             # Limpiar campos
             self.question_entry.delete(0, "end")
             self.answer_var.set("")
 
             # Mostrar feedback
-            self.show_feedback(f"P{question}: {answer}")
+            self.show_feedback(feedback_msg)
 
         except ValueError:
             messagebox.showerror("Error", "Número de pregunta inválido")
 
     def clear_answer(self):
-        """Limpia/elimina una respuesta"""
+        """Limpia/elimina TODAS las respuestas de una pregunta"""
         try:
             question_str = self.question_entry.get().strip()
             if not question_str:
@@ -661,30 +692,16 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
             question = int(question_str)
 
-            # Eliminar respuesta
-            if question in self.edited_respuestas:
-                del self.edited_respuestas[question]
+            # Eliminar todas las alternativas de esta pregunta
+            if question in self.edited_respuestas and len(self.edited_respuestas[question]) > 0:
+                self.edited_respuestas[question] = set()  # Vaciar el set
 
-                # Buscar y eliminar círculos manuales de esta pregunta
-                calibration = self.omr_detector.calibration_data
-                respuestas_circles = calibration['respuestas']
+                # Redibujar todos los círculos
+                self.redraw_all_circles()
 
-                # Encontrar todos los círculos de esta pregunta
-                question_circles = [c for c in respuestas_circles if c['pregunta'] == question]
-
-                # Eliminar círculos manuales que coincidan
-                for qc in question_circles:
-                    for mc in self.manual_circles[:]:  # Iterar sobre copia
-                        # Verificar si las coordenadas coinciden aproximadamente
-                        if abs(mc['x'] - qc['x']) < 5 and abs(mc['y'] - qc['y']) < 5:
-                            # Eliminar del canvas
-                            self.canvas.delete(mc['id'])
-                            # Eliminar de la lista
-                            self.manual_circles.remove(mc)
-
-                self.show_feedback(f"P{question}: Respuesta eliminada")
+                self.show_feedback(f"P{question}: Todas las respuestas eliminadas")
             else:
-                messagebox.showinfo("Info", "Esa pregunta no tiene respuesta")
+                messagebox.showinfo("Info", "Esa pregunta no tiene respuestas")
 
         except ValueError:
             messagebox.showerror("Error", "Número de pregunta inválido")
@@ -713,7 +730,19 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Actualizar resultado
         sheet = self.sheets_to_review[self.current_index]
         sheet['result']['matricula'] = new_matricula
-        sheet['result']['respuestas'] = self.edited_respuestas.copy()
+
+        # Convertir edited_respuestas (sets) a formato simple para guardar
+        final_respuestas_simple = {}
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            if len(alternativas_set) == 1:
+                # Respuesta única
+                final_respuestas_simple[pregunta] = list(alternativas_set)[0]
+            elif len(alternativas_set) > 1:
+                # Múltiples respuestas - guardar la primera (pero el overlay mostrará todas)
+                final_respuestas_simple[pregunta] = list(alternativas_set)[0]
+            # Si len == 0, no se guarda (sin respuesta)
+
+        sheet['result']['respuestas'] = final_respuestas_simple
 
         # IMPORTANTE: Actualizar image_path con la nueva matrícula corregida
         # Esto es crítico para que el archivo se guarde con el nombre correcto
@@ -792,12 +821,19 @@ class ManualReviewWindow(ctk.CTkToplevel):
         correctas = 0
         incorrectas = 0
 
-        for pregunta, respuesta in sheet['result']['respuestas'].items():
-            if respuesta is None:
+        # Recorrer las respuestas editadas (ahora son sets)
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            # Si no hay alternativas o hay múltiples, es incorrecta
+            if len(alternativas_set) == 0 or len(alternativas_set) > 1:
+                if pregunta in answer_key:
+                    incorrectas += 1
                 continue
 
+            # Si hay exactamente una alternativa, verificar si es correcta
+            alternativa = list(alternativas_set)[0]
+
             if pregunta in answer_key:
-                if respuesta == answer_key[pregunta]:
+                if alternativa == answer_key[pregunta]:
                     correctas += 1
                 else:
                     incorrectas += 1
