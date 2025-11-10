@@ -40,6 +40,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.title("Revisión Manual de Hojas")
         self.geometry("1200x800")
 
+        # Hacer la ventana redimensionable y con botones min/max
+        self.resizable(True, True)
+
         # Hacer la ventana modal
         self.transient(parent)
         self.grab_set()
@@ -47,6 +50,10 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Variables de edición
         self.edited_matricula = None
         self.edited_respuestas = {}
+
+        # Variables para zoom
+        self.zoom_level = 1.0
+        self.original_image = None
 
         # Crear interfaz
         self.create_widgets()
@@ -107,6 +114,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
         # Bind click en canvas
         self.canvas.bind("<Button-1>", self.on_image_click)
+
+        # Bind scroll con rueda del ratón
+        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
+        self.canvas.bind("<Shift-MouseWheel>", self.on_shift_mousewheel)
+
+        # Bind zoom con Ctrl+rueda
+        self.canvas.bind("<Control-MouseWheel>", self.on_zoom)
 
         # ===== PANEL DE CORRECCIÓN RÁPIDA =====
         correction_frame = ctk.CTkFrame(self)
@@ -245,11 +259,91 @@ class ManualReviewWindow(ctk.CTkToplevel):
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
 
+    def on_mousewheel(self, event):
+        """Maneja el scroll vertical con la rueda del ratón"""
+        # En Windows, event.delta es positivo para arriba, negativo para abajo
+        # Dividir por 120 para normalizar (Windows usa múltiplos de 120)
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def on_shift_mousewheel(self, event):
+        """Maneja el scroll horizontal con Shift + rueda del ratón"""
+        self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def on_zoom(self, event):
+        """Maneja el zoom con Ctrl + rueda del ratón"""
+        # Determinar factor de zoom
+        if event.delta > 0:
+            # Zoom in
+            factor = 1.1
+        else:
+            # Zoom out
+            factor = 0.9
+
+        # Actualizar nivel de zoom
+        new_zoom = self.zoom_level * factor
+
+        # Limitar zoom entre 0.5x y 3.0x
+        if 0.5 <= new_zoom <= 3.0:
+            self.zoom_level = new_zoom
+            self.apply_zoom()
+
+    def apply_zoom(self):
+        """Aplica el zoom actual a la imagen"""
+        try:
+            if self.current_pil_image is None:
+                return
+
+            # Calcular nuevo tamaño
+            original_width, original_height = self.current_pil_image.size
+            new_width = int(original_width * self.zoom_level)
+            new_height = int(original_height * self.zoom_level)
+
+            # Redimensionar imagen
+            resized_image = self.current_pil_image.resize((new_width, new_height), Image.LANCZOS)
+
+            # Convertir a PhotoImage
+            self.photo_image = ImageTk.PhotoImage(resized_image)
+
+            # Actualizar canvas
+            self.canvas.delete("all")
+            self.image_id = self.canvas.create_image(0, 0, anchor="nw", image=self.photo_image)
+
+            # Actualizar región de scroll
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+        except Exception as e:
+            print(f"Error al aplicar zoom: {e}")
+
+    def draw_feedback_circle(self, x, y, radius):
+        """Dibuja un círculo verde temporal como feedback visual"""
+        # Ajustar coordenadas según zoom
+        scaled_x = x * self.zoom_level
+        scaled_y = y * self.zoom_level
+        scaled_radius = radius * self.zoom_level
+
+        # Dibujar círculo verde temporal
+        circle_id = self.canvas.create_oval(
+            scaled_x - scaled_radius,
+            scaled_y - scaled_radius,
+            scaled_x + scaled_radius,
+            scaled_y + scaled_radius,
+            outline="green",
+            width=3,
+            tags="feedback"
+        )
+
+        # Eliminar el círculo después de 300ms
+        self.after(300, lambda: self.canvas.delete("feedback"))
+
     def on_image_click(self, event):
         """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
-        # Obtener coordenadas del click en la imagen (considerando scroll)
+        # Obtener coordenadas del click en la imagen (considerando scroll y zoom)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+
+        # Ajustar por zoom (las coordenadas de calibración son de la imagen original)
+        image_x = canvas_x / self.zoom_level
+        image_y = canvas_y / self.zoom_level
 
         calibration = self.omr_detector.calibration_data
 
@@ -262,8 +356,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (usando coordenadas de imagen)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance_matricula:
@@ -274,6 +368,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Usuario hizo click en un círculo de matrícula
             columna = clicked_matricula['columna']
             digito = clicked_matricula['digito']
+
+            # Dibujar feedback visual inmediato
+            self.draw_feedback_circle(clicked_matricula['x'], clicked_matricula['y'], clicked_matricula['radius'])
 
             # Actualizar matrícula
             # Convertir matrícula actual a lista de dígitos
@@ -305,8 +402,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (usando coordenadas de imagen)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance:
@@ -317,6 +414,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Usuario hizo click en un círculo de respuesta
             pregunta = clicked_circle['pregunta']
             alternativa = clicked_circle['alternativa']
+
+            # Dibujar feedback visual inmediato
+            self.draw_feedback_circle(clicked_circle['x'], clicked_circle['y'], clicked_circle['radius'])
 
             # Actualizar respuesta
             self.edited_respuestas[pregunta] = alternativa
@@ -342,12 +442,17 @@ class ManualReviewWindow(ctk.CTkToplevel):
                 if pregunta in original_details:
                     # Si ya existía, actualizar
                     updated_details[pregunta] = original_details[pregunta].copy()
+                    updated_details[pregunta]['manually_corrected'] = True
                 else:
                     # Si no existía (fue agregada manualmente), crear detail nuevo
+                    # IMPORTANTE: Usar 'status': 'ok' para que create_visual_overlay dibuje el círculo
                     updated_details[pregunta] = {
-                        'status': 'detected',  # Marcar como detectado
+                        'status': 'ok',  # Estado OK para que se dibuje correctamente
+                        'alternativa': respuesta,  # Alternativa seleccionada
                         'confidence': 100.0,   # Alta confianza (corrección manual)
-                        'manually_corrected': True
+                        'manually_corrected': True,
+                        'fill_percentage': 100.0,  # Completamente marcado (manual)
+                        'difference': 100.0  # Diferencia máxima (manual)
                     }
 
             # Copiar detalles de preguntas no editadas
@@ -371,10 +476,16 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
                     try:
                         digito = int(digito_char)
+                        # Verificar si este dígito fue corregido manualmente
+                        is_corrected = (col_key not in original_matricula_details or
+                                      original_matricula_details[col_key].get('digito') != digito)
+
                         matricula_details[col_key] = {
                             'digito': digito,
                             'confidence': 100.0,
-                            'manually_corrected': True
+                            'manually_corrected': is_corrected,
+                            'fill_percentage': 100.0 if is_corrected else original_matricula_details.get(col_key, {}).get('fill_percentage', 100.0),
+                            'difference': 100.0 if is_corrected else original_matricula_details.get(col_key, {}).get('difference', 100.0)
                         }
                     except ValueError:
                         # Si el carácter no es un dígito, mantener el original si existe
