@@ -51,6 +51,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.edited_matricula = None
         self.edited_respuestas = {}
 
+        # Track de círculos dibujados manualmente por el usuario
+        self.manual_circles = []  # Lista de círculos verdes dibujados por el usuario
+
+        # Factor de escala para la imagen
+        self.scale_factor = 1.0
+        self.display_width = 1100  # Ancho deseado para la imagen
+
         # Crear interfaz
         self.create_widgets()
 
@@ -200,6 +207,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Cargar respuestas (hacer una copia para editar)
         self.edited_respuestas = sheet['result']['respuestas'].copy()
 
+        # Limpiar círculos manuales anteriores
+        self.manual_circles = []
+
         # Mostrar confianza
         confidence = sheet['result']['confidence']
         self.confidence_label.configure(
@@ -214,28 +224,39 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.next_btn.configure(state="normal" if self.current_index < total - 1 else "disabled")
 
     def load_image(self, sheet: Dict):
-        """Carga la imagen de overlay en el canvas"""
+        """Carga la imagen de overlay en el canvas - solo muestra detecciones en verde"""
         try:
-            # Leer imagen si ya está guardada, o generarla
-            if sheet['result'].get('image_path') and Path(sheet['result']['image_path']).exists():
-                # Cargar imagen guardada
-                image_bgr = cv2.imread(sheet['result']['image_path'])
-            else:
-                # Generar imagen de overlay (no debería pasar, pero por seguridad)
-                image_bgr = sheet.get('overlay_image')
+            # Obtener la imagen warped original
+            warped_image = sheet.get('warped_image')
 
-            if image_bgr is None:
+            if warped_image is None:
                 messagebox.showerror("Error", "No se pudo cargar la imagen de la hoja")
                 return
 
+            # Generar overlay de REVISIÓN (solo círculos verdes en detecciones, sin comparar con pauta)
+            review_overlay = self.create_review_overlay(
+                warped_image,
+                sheet['detection_result']
+            )
+
+            # Guardar imagen original (sin escalar) para generar overlay final
+            self.current_image_bgr = review_overlay
+
+            # Calcular factor de escala para ajustar imagen a la ventana
+            original_height, original_width = review_overlay.shape[:2]
+            self.scale_factor = self.display_width / original_width
+
+            # Redimensionar imagen para visualización
+            new_width = int(original_width * self.scale_factor)
+            new_height = int(original_height * self.scale_factor)
+            resized_image = cv2.resize(review_overlay, (new_width, new_height),
+                                      interpolation=cv2.INTER_AREA)
+
             # Convertir BGR a RGB
-            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            image_rgb = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)
 
             # Convertir a PIL Image
             pil_image = Image.fromarray(image_rgb)
-
-            # Guardar imagen original para referencia
-            self.current_image_bgr = image_bgr
             self.current_pil_image = pil_image
 
             # Convertir a PhotoImage para tkinter
@@ -252,6 +273,101 @@ class ManualReviewWindow(ctk.CTkToplevel):
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
 
+    def create_review_overlay(self, warped_image, detection_result):
+        """
+        Crea overlay de REVISIÓN mostrando solo círculos verdes en detecciones automáticas
+        NO compara con la pauta, NO muestra colores de corrección
+        """
+        # Copiar imagen para no modificar la original
+        overlay = warped_image.copy()
+
+        # Color verde para todas las detecciones
+        COLOR_DETECTED = (0, 255, 0)  # Verde
+
+        calibration = self.omr_detector.calibration_data
+
+        # ===== DIBUJAR MATRÍCULA DETECTADA =====
+        matricula_circles = calibration['matricula']
+        matricula_detection = detection_result['matricula']
+        matricula_str = matricula_detection.get('matricula', '')
+        matricula_details = matricula_detection.get('details', {})
+
+        if len(matricula_str) == 10:
+            for col_idx, digito_char in enumerate(matricula_str):
+                try:
+                    digito = int(digito_char)
+                    col_num = col_idx + 1
+                    col_key = f'col_{col_num}'
+
+                    # Encontrar el círculo correspondiente
+                    matching_circle = next(
+                        (c for c in matricula_circles
+                         if c['columna'] == col_num and c['digito'] == digito),
+                        None
+                    )
+
+                    if matching_circle:
+                        # Dibujar círculo verde
+                        cv2.circle(
+                            overlay,
+                            (matching_circle['x'], matching_circle['y']),
+                            matching_circle['radius'],
+                            COLOR_DETECTED,
+                            2
+                        )
+                except ValueError:
+                    continue
+
+        # ===== DIBUJAR RESPUESTAS DETECTADAS =====
+        respuestas_circles = calibration['respuestas']
+        respuestas_detected = detection_result['respuestas'].get('respuestas', {})
+        respuestas_details = detection_result['respuestas'].get('details', {})
+
+        for pregunta, alternativa in respuestas_detected.items():
+            if alternativa is None:
+                continue
+
+            detail = respuestas_details.get(pregunta, {})
+            status = detail.get('status', '')
+
+            # Solo dibujar si no es 'empty' o 'multiple'
+            if status == 'empty':
+                continue
+            elif status == 'multiple':
+                # En múltiples marcas, dibujar todas las alternativas detectadas en verde
+                marked_alternatives = detail.get('marked_alternatives', [])
+                for alt in marked_alternatives:
+                    matching_circle = next(
+                        (c for c in respuestas_circles
+                         if c['pregunta'] == pregunta and c['alternativa'] == alt),
+                        None
+                    )
+                    if matching_circle:
+                        cv2.circle(
+                            overlay,
+                            (matching_circle['x'], matching_circle['y']),
+                            matching_circle['radius'],
+                            COLOR_DETECTED,
+                            2
+                        )
+            else:
+                # Respuesta detectada normalmente - dibujar en verde
+                matching_circle = next(
+                    (c for c in respuestas_circles
+                     if c['pregunta'] == pregunta and c['alternativa'] == alternativa),
+                    None
+                )
+                if matching_circle:
+                    cv2.circle(
+                        overlay,
+                        (matching_circle['x'], matching_circle['y']),
+                        matching_circle['radius'],
+                        COLOR_DETECTED,
+                        2
+                    )
+
+        return overlay
+
     def on_mousewheel(self, event):
         """Maneja el scroll vertical con la rueda del ratón"""
         # En Windows, event.delta es positivo para arriba, negativo para abajo
@@ -262,27 +378,41 @@ class ManualReviewWindow(ctk.CTkToplevel):
         """Maneja el scroll horizontal con Shift + rueda del ratón"""
         self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def draw_feedback_circle(self, x, y, radius):
-        """Dibuja un círculo verde temporal como feedback visual"""
-        # Dibujar círculo verde temporal
+    def draw_permanent_circle(self, x, y, radius):
+        """Dibuja un círculo verde PERMANENTE en el canvas"""
+        # Escalar coordenadas según el factor de escala de la imagen
+        scaled_x = int(x * self.scale_factor)
+        scaled_y = int(y * self.scale_factor)
+        scaled_radius = int(radius * self.scale_factor)
+
+        # Dibujar círculo verde permanente
         circle_id = self.canvas.create_oval(
-            x - radius,
-            y - radius,
-            x + radius,
-            y + radius,
+            scaled_x - scaled_radius,
+            scaled_y - scaled_radius,
+            scaled_x + scaled_radius,
+            scaled_y + scaled_radius,
             outline="green",
             width=3,
-            tags="feedback"
+            tags="manual_circle"
         )
 
-        # Eliminar el círculo después de 300ms
-        self.after(300, lambda: self.canvas.delete("feedback"))
+        # Guardar en la lista de círculos manuales
+        self.manual_circles.append({
+            'id': circle_id,
+            'x': x,  # Coordenadas originales (sin escalar)
+            'y': y,
+            'radius': radius
+        })
 
     def on_image_click(self, event):
         """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
-        # Obtener coordenadas del click en la imagen (considerando scroll)
+        # Obtener coordenadas del click en el canvas (considerando scroll)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+
+        # Convertir a coordenadas de imagen original (sin escala)
+        image_x = int(canvas_x / self.scale_factor)
+        image_y = int(canvas_y / self.scale_factor)
 
         calibration = self.omr_detector.calibration_data
 
@@ -295,8 +425,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (en coordenadas originales)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance_matricula:
@@ -308,8 +438,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
             columna = clicked_matricula['columna']
             digito = clicked_matricula['digito']
 
-            # Dibujar feedback visual inmediato
-            self.draw_feedback_circle(clicked_matricula['x'], clicked_matricula['y'], clicked_matricula['radius'])
+            # Dibujar círculo verde PERMANENTE
+            self.draw_permanent_circle(clicked_matricula['x'], clicked_matricula['y'],
+                                      clicked_matricula['radius'])
 
             # Actualizar matrícula
             # Convertir matrícula actual a lista de dígitos
@@ -325,9 +456,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
             self.matricula_entry.delete(0, "end")
             self.matricula_entry.insert(0, self.edited_matricula)
 
-            # Regenerar imagen con overlay actualizado
-            self.regenerate_overlay()
-
             # Mostrar feedback
             self.show_feedback(f"Matrícula col {columna}: {digito}")
             return
@@ -341,8 +469,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (en coordenadas originales)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance:
@@ -354,24 +482,22 @@ class ManualReviewWindow(ctk.CTkToplevel):
             pregunta = clicked_circle['pregunta']
             alternativa = clicked_circle['alternativa']
 
-            # Dibujar feedback visual inmediato
-            self.draw_feedback_circle(clicked_circle['x'], clicked_circle['y'], clicked_circle['radius'])
+            # Dibujar círculo verde PERMANENTE
+            self.draw_permanent_circle(clicked_circle['x'], clicked_circle['y'],
+                                      clicked_circle['radius'])
 
             # Actualizar respuesta
             self.edited_respuestas[pregunta] = alternativa
 
-            # Regenerar imagen con overlay actualizado
-            self.regenerate_overlay()
-
             # Mostrar feedback
             self.show_feedback(f"P{pregunta}: {alternativa}")
 
-    def regenerate_overlay(self):
-        """Regenera la imagen de overlay con las respuestas editadas"""
+    def generate_final_overlay(self, sheet: Dict):
+        """
+        Genera el overlay FINAL con comparación de pauta y colores de corrección
+        Solo se llama al guardar, NO durante la edición
+        """
         try:
-            # Obtener sheet actual
-            sheet = self.sheets_to_review[self.current_index]
-
             # Actualizar details de respuestas para incluir correcciones manuales
             original_details = sheet['detection_result']['respuestas'].get('details', {})
             updated_details = {}
@@ -382,6 +508,7 @@ class ManualReviewWindow(ctk.CTkToplevel):
                     # Si ya existía, actualizar
                     updated_details[pregunta] = original_details[pregunta].copy()
                     updated_details[pregunta]['manually_corrected'] = True
+                    updated_details[pregunta]['alternativa'] = respuesta
                 else:
                     # Si no existía (fue agregada manualmente), crear detail nuevo
                     # IMPORTANTE: Usar 'status': 'ok' para que create_visual_overlay dibuje el círculo
@@ -449,28 +576,18 @@ class ManualReviewWindow(ctk.CTkToplevel):
                 'success': True
             }
 
-            # Generar nuevo overlay
+            # Generar overlay final con comparación de pauta
             overlay = self.omr_detector.create_visual_overlay(
                 sheet['warped_image'],
                 detection_result,
                 answer_key=self.app_data.get('answer_key')
             )
 
-            # Convertir y mostrar
-            image_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(image_rgb)
-
-            self.current_image_bgr = overlay
-            self.current_pil_image = pil_image
-            self.photo_image = ImageTk.PhotoImage(pil_image)
-
-            self.canvas.delete("all")
-            self.image_id = self.canvas.create_image(0, 0, anchor="nw",
-                                                     image=self.photo_image)
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            return overlay
 
         except Exception as e:
-            print(f"Error al regenerar overlay: {e}")
+            print(f"Error al generar overlay final: {e}")
+            return None
 
     def show_feedback(self, message: str):
         """Muestra mensaje temporal de feedback"""
@@ -510,8 +627,19 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Actualizar respuesta
             self.edited_respuestas[question] = answer
 
-            # Regenerar overlay
-            self.regenerate_overlay()
+            # Buscar el círculo correspondiente y dibujarlo
+            calibration = self.omr_detector.calibration_data
+            respuestas_circles = calibration['respuestas']
+            matching_circle = next(
+                (c for c in respuestas_circles
+                 if c['pregunta'] == question and c['alternativa'] == answer),
+                None
+            )
+
+            if matching_circle:
+                # Dibujar círculo verde permanente
+                self.draw_permanent_circle(matching_circle['x'], matching_circle['y'],
+                                          matching_circle['radius'])
 
             # Limpiar campos
             self.question_entry.delete(0, "end")
@@ -536,7 +664,24 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Eliminar respuesta
             if question in self.edited_respuestas:
                 del self.edited_respuestas[question]
-                self.regenerate_overlay()
+
+                # Buscar y eliminar círculos manuales de esta pregunta
+                calibration = self.omr_detector.calibration_data
+                respuestas_circles = calibration['respuestas']
+
+                # Encontrar todos los círculos de esta pregunta
+                question_circles = [c for c in respuestas_circles if c['pregunta'] == question]
+
+                # Eliminar círculos manuales que coincidan
+                for qc in question_circles:
+                    for mc in self.manual_circles[:]:  # Iterar sobre copia
+                        # Verificar si las coordenadas coinciden aproximadamente
+                        if abs(mc['x'] - qc['x']) < 5 and abs(mc['y'] - qc['y']) < 5:
+                            # Eliminar del canvas
+                            self.canvas.delete(mc['id'])
+                            # Eliminar de la lista
+                            self.manual_circles.remove(mc)
+
                 self.show_feedback(f"P{question}: Respuesta eliminada")
             else:
                 messagebox.showinfo("Info", "Esa pregunta no tiene respuesta")
@@ -555,6 +700,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                       "La matrícula no tiene 10 dígitos. ¿Continuar de todos modos?"):
                 return
 
+        # Validar que la matrícula solo contenga dígitos (para nombre de archivo)
+        if not new_matricula.isdigit():
+            messagebox.showerror("Error",
+                               "La matrícula debe contener solo dígitos (0-9)\n"
+                               "Por favor corrige la matrícula antes de guardar.")
+            return
+
         # Actualizar matrícula editada
         self.edited_matricula = new_matricula
 
@@ -563,11 +715,47 @@ class ManualReviewWindow(ctk.CTkToplevel):
         sheet['result']['matricula'] = new_matricula
         sheet['result']['respuestas'] = self.edited_respuestas.copy()
 
+        # IMPORTANTE: Actualizar image_path con la nueva matrícula corregida
+        # Esto es crítico para que el archivo se guarde con el nombre correcto
+        old_image_path = sheet['result'].get('image_path')
+        if old_image_path:
+            # Reconstruir el path con la nueva matrícula
+            from pathlib import Path
+            old_path = Path(old_image_path)
+            output_dir = old_path.parent
+
+            # Obtener el nombre de prueba del path original
+            # Formato: {matricula}_{test_name}.jpg o {matricula}_{test_name}_pX.jpg
+            old_filename = old_path.stem  # nombre sin extensión
+
+            # Extraer la parte después del primer "_" (que es el nombre de prueba)
+            parts = old_filename.split('_', 1)
+            if len(parts) > 1:
+                test_part = parts[1]  # Esto puede ser "test2" o "test2_p1"
+                new_filename = f"{new_matricula}_{test_part}.jpg"
+            else:
+                # Fallback: usar solo la matrícula
+                new_filename = f"{new_matricula}.jpg"
+
+            new_image_path = output_dir / new_filename
+            sheet['result']['image_path'] = str(new_image_path)
+
+            print(f"📝 Ruta de imagen actualizada:")
+            print(f"   Antigua: {old_image_path}")
+            print(f"   Nueva:   {new_image_path}")
+
         # Recalcular nota
         self.recalculate_grade(sheet)
 
-        # IMPORTANTE: Regenerar overlay con todas las correcciones antes de guardar
-        self.regenerate_overlay()
+        # IMPORTANTE: Generar overlay FINAL con comparación de pauta
+        final_overlay = self.generate_final_overlay(sheet)
+
+        if final_overlay is None:
+            messagebox.showerror("Error", "No se pudo generar el overlay final")
+            return
+
+        # Actualizar la imagen actual con el overlay final
+        self.current_image_bgr = final_overlay
 
         # Guardar en Excel
         if self.on_save_callback:
