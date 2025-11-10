@@ -51,10 +51,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.edited_matricula = None
         self.edited_respuestas = {}
 
-        # Variables para zoom
-        self.zoom_level = 1.0
-        self.original_image = None
-
         # Crear interfaz
         self.create_widgets()
 
@@ -118,9 +114,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Bind scroll con rueda del ratón
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self.on_shift_mousewheel)
-
-        # Bind zoom con Ctrl+rueda
-        self.canvas.bind("<Control-MouseWheel>", self.on_zoom)
 
         # ===== PANEL DE CORRECCIÓN RÁPIDA =====
         correction_frame = ctk.CTkFrame(self)
@@ -269,64 +262,14 @@ class ManualReviewWindow(ctk.CTkToplevel):
         """Maneja el scroll horizontal con Shift + rueda del ratón"""
         self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def on_zoom(self, event):
-        """Maneja el zoom con Ctrl + rueda del ratón"""
-        # Determinar factor de zoom
-        if event.delta > 0:
-            # Zoom in
-            factor = 1.1
-        else:
-            # Zoom out
-            factor = 0.9
-
-        # Actualizar nivel de zoom
-        new_zoom = self.zoom_level * factor
-
-        # Limitar zoom entre 0.5x y 3.0x
-        if 0.5 <= new_zoom <= 3.0:
-            self.zoom_level = new_zoom
-            self.apply_zoom()
-
-    def apply_zoom(self):
-        """Aplica el zoom actual a la imagen"""
-        try:
-            if self.current_pil_image is None:
-                return
-
-            # Calcular nuevo tamaño
-            original_width, original_height = self.current_pil_image.size
-            new_width = int(original_width * self.zoom_level)
-            new_height = int(original_height * self.zoom_level)
-
-            # Redimensionar imagen
-            resized_image = self.current_pil_image.resize((new_width, new_height), Image.LANCZOS)
-
-            # Convertir a PhotoImage
-            self.photo_image = ImageTk.PhotoImage(resized_image)
-
-            # Actualizar canvas
-            self.canvas.delete("all")
-            self.image_id = self.canvas.create_image(0, 0, anchor="nw", image=self.photo_image)
-
-            # Actualizar región de scroll
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-        except Exception as e:
-            print(f"Error al aplicar zoom: {e}")
-
     def draw_feedback_circle(self, x, y, radius):
         """Dibuja un círculo verde temporal como feedback visual"""
-        # Ajustar coordenadas según zoom
-        scaled_x = x * self.zoom_level
-        scaled_y = y * self.zoom_level
-        scaled_radius = radius * self.zoom_level
-
         # Dibujar círculo verde temporal
         circle_id = self.canvas.create_oval(
-            scaled_x - scaled_radius,
-            scaled_y - scaled_radius,
-            scaled_x + scaled_radius,
-            scaled_y + scaled_radius,
+            x - radius,
+            y - radius,
+            x + radius,
+            y + radius,
             outline="green",
             width=3,
             tags="feedback"
@@ -337,13 +280,9 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
     def on_image_click(self, event):
         """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
-        # Obtener coordenadas del click en la imagen (considerando scroll y zoom)
+        # Obtener coordenadas del click en la imagen (considerando scroll)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
-
-        # Ajustar por zoom (las coordenadas de calibración son de la imagen original)
-        image_x = canvas_x / self.zoom_level
-        image_y = canvas_y / self.zoom_level
 
         calibration = self.omr_detector.calibration_data
 
@@ -356,8 +295,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo (usando coordenadas de imagen)
-            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
+            # Calcular distancia del click al centro del círculo
+            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance_matricula:
@@ -402,8 +341,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo (usando coordenadas de imagen)
-            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
+            # Calcular distancia del click al centro del círculo
+            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance:
