@@ -122,39 +122,11 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self.on_shift_mousewheel)
 
-        # ===== PANEL DE CORRECCIÓN RÁPIDA =====
-        correction_frame = ctk.CTkFrame(self)
-        correction_frame.pack(fill="x", padx=10, pady=5)
-
-        ctk.CTkLabel(correction_frame, text="Corrección rápida:",
-                    font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=10)
-
-        ctk.CTkLabel(correction_frame, text="Pregunta:").pack(side="left", padx=5)
-        self.question_entry = ctk.CTkEntry(correction_frame, width=60)
-        self.question_entry.pack(side="left", padx=5)
-
-        ctk.CTkLabel(correction_frame, text="Respuesta:").pack(side="left", padx=5)
-
-        # Radio buttons para respuestas
-        self.answer_var = ctk.StringVar(value="")
-        for alt in ["A", "B", "C", "D", "E"]:
-            ctk.CTkRadioButton(correction_frame, text=alt, variable=self.answer_var,
-                              value=alt, command=self.on_quick_correction).pack(side="left", padx=2)
-
-        ctk.CTkButton(correction_frame, text="Aplicar", width=80,
-                     command=self.apply_quick_correction).pack(side="left", padx=10)
-
-        # Botón para limpiar respuesta
-        ctk.CTkButton(correction_frame, text="Limpiar Respuesta", width=120,
-                     command=self.clear_answer, fg_color="orange",
-                     hover_color="darkorange").pack(side="left", padx=5)
-
         # ===== INSTRUCCIONES =====
         instruction_frame = ctk.CTkFrame(self)
         instruction_frame.pack(fill="x", padx=10, pady=5)
 
-        instructions = ("💡 Instrucciones: Haz click en los círculos de la imagen para marcar/desmarcar respuestas. "
-                       "O usa la corrección rápida ingresando número de pregunta y seleccionando la respuesta.")
+        instructions = ("💡 Instrucciones: Haz click en los círculos de la imagen para marcar/desmarcar respuestas y matrícula.")
         ctk.CTkLabel(instruction_frame, text=instructions,
                     font=ctk.CTkFont(size=11), wraplength=1100).pack(pady=5)
 
@@ -175,10 +147,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                      command=self.save_and_continue,
                                      fg_color="green", hover_color="darkgreen")
         self.save_btn.pack(side="left", padx=10)
-
-        self.next_btn = ctk.CTkButton(nav_frame, text="Siguiente ►", width=120,
-                                     command=self.go_next)
-        self.next_btn.pack(side="left", padx=10)
 
         # Botón cerrar
         ctk.CTkButton(nav_frame, text="Cerrar", width=120,
@@ -236,7 +204,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
         # Actualizar estado de botones
         self.prev_btn.configure(state="normal" if self.current_index > 0 else "disabled")
-        self.next_btn.configure(state="normal" if self.current_index < total - 1 else "disabled")
 
     def load_image(self, sheet: Dict):
         """Carga la imagen de overlay en el canvas - solo muestra detecciones en verde"""
@@ -631,81 +598,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
         # Restaurar después de 2 segundos
         self.after(2000, lambda: self.confidence_label.configure(text=original_text))
 
-    def on_quick_correction(self):
-        """Callback cuando se selecciona una respuesta en corrección rápida"""
-        pass  # Solo para actualizar el radio button
-
-    def apply_quick_correction(self):
-        """Aplica la corrección rápida ingresada manualmente"""
-        try:
-            question_str = self.question_entry.get().strip()
-            if not question_str:
-                messagebox.showwarning("Advertencia", "Ingresa el número de pregunta")
-                return
-
-            question = int(question_str)
-            answer = self.answer_var.get()
-
-            if not answer:
-                messagebox.showwarning("Advertencia", "Selecciona una respuesta")
-                return
-
-            # Verificar que la pregunta esté en rango
-            num_questions = self.app_data.get('num_questions', 100)
-            if question < 1 or question > num_questions:
-                messagebox.showerror("Error",
-                                   f"Pregunta debe estar entre 1 y {num_questions}")
-                return
-
-            # Actualizar respuesta (agregar al set)
-            if question not in self.edited_respuestas:
-                self.edited_respuestas[question] = set()
-
-            # TOGGLE: Si ya está, eliminar; si no está, agregar
-            if answer in self.edited_respuestas[question]:
-                self.edited_respuestas[question].remove(answer)
-                feedback_msg = f"P{question}: {answer} desmarcado"
-            else:
-                self.edited_respuestas[question].add(answer)
-                feedback_msg = f"P{question}: {answer} marcado"
-
-            # Redibujar todos los círculos
-            self.redraw_all_circles()
-
-            # Limpiar campos
-            self.question_entry.delete(0, "end")
-            self.answer_var.set("")
-
-            # Mostrar feedback
-            self.show_feedback(feedback_msg)
-
-        except ValueError:
-            messagebox.showerror("Error", "Número de pregunta inválido")
-
-    def clear_answer(self):
-        """Limpia/elimina TODAS las respuestas de una pregunta"""
-        try:
-            question_str = self.question_entry.get().strip()
-            if not question_str:
-                messagebox.showwarning("Advertencia", "Ingresa el número de pregunta")
-                return
-
-            question = int(question_str)
-
-            # Eliminar todas las alternativas de esta pregunta
-            if question in self.edited_respuestas and len(self.edited_respuestas[question]) > 0:
-                self.edited_respuestas[question] = set()  # Vaciar el set
-
-                # Redibujar todos los círculos
-                self.redraw_all_circles()
-
-                self.show_feedback(f"P{question}: Todas las respuestas eliminadas")
-            else:
-                messagebox.showinfo("Info", "Esa pregunta no tiene respuestas")
-
-        except ValueError:
-            messagebox.showerror("Error", "Número de pregunta inválido")
-
     def save_and_continue(self):
         """Guarda la hoja actual y continúa con la siguiente"""
         # Obtener matrícula editada
@@ -751,7 +643,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Reconstruir el path con la nueva matrícula
             from pathlib import Path
             old_path = Path(old_image_path)
+
+            # El output_dir es la carpeta de la prueba (ej: excel_dir/test_name/)
+            # Mantener esta estructura
             output_dir = old_path.parent
+
+            # Asegurar que la carpeta existe (en caso de que no exista por alguna razón)
+            output_dir.mkdir(parents=True, exist_ok=True)
 
             # Obtener el nombre de prueba del path original
             # Formato: {matricula}_{test_name}.jpg o {matricula}_{test_name}_pX.jpg
@@ -886,12 +784,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
         """Va a la hoja anterior"""
         if self.current_index > 0:
             self.current_index -= 1
-            self.load_current_sheet()
-
-    def go_next(self):
-        """Va a la siguiente hoja"""
-        if self.current_index < len(self.sheets_to_review) - 1:
-            self.current_index += 1
             self.load_current_sheet()
 
     def close_window(self):
