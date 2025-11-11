@@ -1,8 +1,8 @@
 # 📊 Revisión General del Repositorio - Test Scanner
 
-**Fecha de revisión:** 6 de noviembre de 2025
+**Fecha de revisión:** 10 de noviembre de 2025
 **Rama:** `main`
-**Versión del proyecto:** v2.0 - Fase 2 completada (Sistema funcional)
+**Versión del proyecto:** v2.1 - Sistema casi finalizado
 
 ---
 
@@ -12,10 +12,10 @@
 
 ### Estado General del Proyecto
 
-- **Fase Actual:** Fase 2 completada ✅ - **Sistema totalmente funcional**
-- **Completitud:** ~95% del proyecto total
+- **Fase Actual:** Fase 2+ completada ✅ - **Sistema casi finalizado (~98%)**
+- **Completitud:** ~98% del proyecto total
 - **Calidad del Código:** Alta - Código bien estructurado y documentado
-- **Líneas de Código:** ~2,500+ líneas de Python
+- **Líneas de Código:** ~2,800+ líneas de Python
 - **Dependencias:** 6 principales (CustomTkinter, OpenCV, NumPy, OpenPyXL, Pillow, PyMuPDF)
 
 ---
@@ -120,14 +120,17 @@ test-scanner/
 - ✅ Resultados detallados con emojis visuales
 - ✅ Integración completa con revisión manual
 
-**Ventana de Revisión Manual** (`manual_review_window.py`) **NUEVO**
-- ✅ Interfaz modal para hojas con confianza < 99%
-- ✅ Click interactivo en círculos (matrícula y respuestas)
+**Ventana de Revisión Manual** (`manual_review_window.py`) **COMPLETAMENTE OPTIMIZADA**
+- ✅ Interfaz modal optimizada para hojas con confianza < 99%
+- ✅ **Sistema de toggle**: Click para marcar/desmarcar círculos
+- ✅ Soporte para múltiples alternativas por pregunta
+- ✅ Scroll vertical (rueda del mouse) y horizontal (Shift + rueda)
+- ✅ **Círculos verde brillante (#00FF00)** para mejor visibilidad
 - ✅ Regeneración de overlay en tiempo real
-- ✅ Navegación entre múltiples hojas pendientes
-- ✅ Panel de correcciones con visualización dinámica
+- ✅ Navegación simplificada (botón "◄ Anterior", "Guardar y Continuar")
+- ✅ Interfaz limpia (sin corrección rápida, sin zoom, sin botón "Siguiente")
 - ✅ Guardado automático en Excel tras corrección
-- ✅ Actualización de imágenes con correcciones aplicadas
+- ✅ Actualización de imágenes organizadas en carpetas por prueba
 
 ### 2. Lógica de Negocio (Core)
 
@@ -157,11 +160,13 @@ test-scanner/
   - Marca todas las alternativas detectadas en rojo
   - Trata múltiples marcas como respuesta incorrecta
 - ✅ **Generación de overlay visual con colores:**
-  - Verde: Respuesta correcta
+  - Verde brillante (#00FF00): Respuesta correcta
   - Rojo: Respuesta incorrecta (incluye múltiples marcas)
   - Amarillo: Respuesta esperada según pauta
-- ✅ Guardado automático de imágenes: `{matricula}_{prueba}.jpg`
-- ✅ Sufijos para multi-página: `{matricula}_{prueba}_p3.jpg`
+- ✅ **Organización de overlays en carpetas por prueba:**
+  - Estructura: `carpeta_excel/nombre_prueba/matricula_prueba.jpg`
+  - Ejemplo: `C:\Docs\test1\2023456789_test1.jpg`
+  - Sufijos para multi-página: `2023456789_test1_p3.jpg`
 
 **Calculadora de Notas** (`grade_calculator.py`) **COMPLETAMENTE FUNCIONAL**
 - ✅ Implementación completa de la fórmula chilena (2 tramos)
@@ -177,7 +182,7 @@ test-scanner/
 - ✅ Búsqueda de estudiante por matrícula
 - ✅ **Creación inteligente de columnas** (sin saltos)
 - ✅ Verificación de notas duplicadas con opción de sobrescritura
-- ✅ Guardado con formato condicional (verde/rojo)
+- ✅ **Guardado sin colores de fondo** (formato limpio y profesional)
 - ✅ Soporte para múltiples pruebas por curso
 - ✅ Manejo robusto de errores
 
@@ -379,14 +384,16 @@ El sistema está **completamente funcional** para su propósito principal. Las s
 |--------|-------------|-------|
 | UI - Configuration | 100% ✅ | Totalmente funcional |
 | UI - Answer Key | 100% ✅ | Totalmente funcional |
-| UI - Grading | 40% ⚠️ | Falta detección OMR |
+| UI - Grading | 100% ✅ | Totalmente funcional con procesamiento por lotes |
+| UI - Manual Review | 98% ✅ | Optimizado y casi perfecto |
 | Core - GradeCalculator | 100% ✅ | Completo y probado |
-| Core - ExcelHandler | 100% ✅ | Completo y probado |
-| Core - ImageProcessor | 0% ❌ | No existe |
-| Core - OMRDetector | 0% ❌ | No existe |
+| Core - ExcelHandler | 100% ✅ | Completo, sin colores de fondo |
+| Core - PDFProcessor | 100% ✅ | Soporte multi-página |
+| Core - ImageProcessor | 100% ✅ | Detección ArUco completa |
+| Core - OMRDetector | 100% ✅ | Detección inteligente con overlays organizados |
 | Utils - Constants | 100% ✅ | Completo |
 
-**Completitud General del Proyecto:** ~60%
+**Completitud General del Proyecto:** ~98%
 
 ---
 
@@ -603,43 +610,58 @@ Test Scanner es un proyecto **completamente funcional y listo para producción**
 - Genera imágenes con correcciones visuales
 - Permite revisión manual de casos ambiguos
 
-**Progreso estimado:** ~95% completado
+**Progreso estimado:** ~98% completado
 
 ### Características Destacadas (Últimas Implementaciones)
 
+**Optimizaciones de UI y UX** (Noviembre 10, 2025)
+- ✅ Excel sin colores de fondo (formato limpio)
+- ✅ Ventana de revisión manual simplificada (sin botón "Siguiente", sin corrección rápida)
+- ✅ Overlays organizados en carpetas por prueba
+- ✅ Círculos verde brillante para mejor visibilidad
+
+**Sistema de Revisión Manual Avanzado** (Noviembre 2025)
+- ✅ Sistema de toggle: click para marcar/desmarcar
+- ✅ Soporte para múltiples alternativas por pregunta
+- ✅ Scroll vertical y horizontal optimizado
+- ✅ Regeneración de overlay en tiempo real
+- ✅ Navegación simplificada entre hojas
+- ✅ Guardado automático con organización por carpetas
+
 **Soporte Multi-página** (Noviembre 2025)
-- Un PDF puede contener múltiples hojas (1 estudiante por página)
-- Detección automática del número de páginas
-- Procesamiento independiente de cada página
-- Imágenes con sufijos para evitar sobrescritura
-- Progreso detallado página por página
+- ✅ Un PDF puede contener múltiples hojas (1 estudiante por página)
+- ✅ Detección automática del número de páginas
+- ✅ Procesamiento independiente de cada página
+- ✅ Imágenes organizadas en carpetas con sufijos
+- ✅ Progreso detallado página por página
 
 **Redondeo Chileno Correcto** (Noviembre 2025)
-- Implementación de "round half up" (tradición chilena)
-- Consistente con escaladenotas.cl
-- Ejemplos: 21pts→2.1, 45pts→3.3, 90pts→6.3
-
-**Sistema de Revisión Manual** (Previamente)
-- Click interactivo en círculos
-- Regeneración de overlay en tiempo real
-- Navegación entre múltiples hojas
-- Guardado automático tras correcciones
+- ✅ Implementación de "round half up" (tradición chilena)
+- ✅ Consistente con escaladenotas.cl
+- ✅ Ejemplos: 21pts→2.1, 45pts→3.3, 90pts→6.3
 
 ### Recomendación Final
 
-**Estado:** El proyecto está **listo para uso en producción**.
+**Estado:** El proyecto está **casi finalizado y listo para uso en producción** (~98% completado).
 
-**Próximos pasos sugeridos:**
-1. ✅ Realizar pruebas beta con usuarios reales
-2. ✅ Recopilar feedback sobre usabilidad
-3. 🔄 Implementar mejoras opcionales de Fase 3 según necesidad
-4. 🔄 Agregar tests unitarios (calidad de código)
+**Últimas optimizaciones completadas (Noviembre 10, 2025):**
+1. ✅ Excel sin colores de fondo (formato limpio y profesional)
+2. ✅ Interfaz de revisión manual simplificada y optimizada
+3. ✅ Sistema de toggle para máxima flexibilidad en correcciones
+4. ✅ Overlays organizados en carpetas por prueba
+5. ✅ Círculos verde brillante para mejor visibilidad
 
-**El sistema puede usarse inmediatamente para calificar pruebas reales.**
+**Próximos pasos sugeridos (opcionales):**
+1. 🔵 Pruebas beta con usuarios reales en producción
+2. 🔵 Recopilar feedback sobre usabilidad
+3. 🔵 Implementar mejoras opcionales de Fase 3 según necesidad (reportes PDF, estadísticas)
+4. 🔵 Agregar tests unitarios para mayor calidad de código
+
+**El sistema está completamente funcional y puede usarse inmediatamente para calificar pruebas reales.**
 
 ---
 
 **Revisado por:** Claude (AI Assistant)
-**Última actualización:** 6 de noviembre de 2025
-**Versión del documento:** 2.0
-**Estado del proyecto:** ✅ Completamente funcional
+**Última actualización:** 10 de noviembre de 2025
+**Versión del documento:** 2.1
+**Estado del proyecto:** ✅ Casi finalizado (~98% completado)

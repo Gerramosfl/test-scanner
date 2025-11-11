@@ -14,13 +14,15 @@ Test Scanner es una aplicación de escritorio que permite calificar automáticam
 - ✅ **Identificación de estudiantes**: Número de matrícula de 10 dígitos
 - ✅ **100 preguntas**: Soporta hasta 100 preguntas con 5 alternativas (A, B, C, D, E)
 - ✅ **Overlay visual con colores**:
-  - 🟢 Verde: Respuesta correcta del estudiante
+  - 🟢 Verde brillante: Respuesta correcta del estudiante
   - 🔴 Rojo: Respuesta incorrecta del estudiante
   - 🟡 Amarillo: Respuesta correcta según pauta (cuando el estudiante no marcó o marcó incorrectamente)
 - ✅ **Detección inteligente de múltiples marcas**: Identifica cuando un estudiante marca 2+ alternativas en una pregunta y las marca todas como incorrectas
-- ✅ **Imágenes con correcciones**: Genera automáticamente imágenes JPG con overlay visual, guardadas como `{matricula}_{nombre_prueba}.jpg`
-- ✅ **Revisión manual inteligente**: Para hojas con confianza < 99%, permite corrección manual interactiva antes de guardar
-- ✅ **Click para corregir**: Interfaz intuitiva donde puedes hacer click en los círculos para corregir matrícula y respuestas
+- ✅ **Organización de imágenes**: Overlays guardados en carpetas por prueba para mejor organización (`carpeta_excel/nombre_prueba/matricula_prueba.jpg`)
+- ✅ **Revisión manual con sistema de toggle**: Para hojas con confianza < 99%, permite corrección manual interactiva
+  - Click en círculos para marcar/desmarcar respuestas y matrícula
+  - Soporte para múltiples alternativas por pregunta
+  - Scroll con rueda del mouse (vertical y horizontal con Shift)
 - ✅ **Integración con Excel**: Se integra con archivos Excel existentes (agrega columnas automáticamente)
 - ✅ **Cálculo según norma chilena**: Escala 1.0 - 7.0 con redondeo "half up" (centésima ≥ 5 redondea hacia arriba)
 - ✅ **Alertas de duplicados**: Detecta notas duplicadas con opción de sobrescritura
@@ -123,19 +125,24 @@ En la pestaña **Calificación**:
 4. **Revisión manual** (si es necesario):
    - Al terminar el procesamiento, se te preguntará si deseas revisar hojas ambiguas
    - Ventana de revisión muestra:
-     - Imagen completa de la hoja con overlay visual
-     - Click en círculos para corregir matrícula o respuestas
-     - Panel lateral muestra correcciones en tiempo real
-     - Navegación entre múltiples hojas (Anterior/Siguiente)
+     - Imagen completa de la hoja (redimensionada automáticamente)
+     - **Sistema de toggle**: Click en círculos para marcar/desmarcar respuestas y matrícula
+     - Soporte para múltiples alternativas por pregunta
+     - Scroll vertical (rueda del mouse) y horizontal (Shift + rueda)
+     - Navegación entre hojas con botón "◄ Anterior"
+     - Círculos verde brillante (#00FF00) para mejor visibilidad
    - Opciones:
-     - **Guardar y Continuar**: Guarda en Excel y pasa a la siguiente hoja
+     - **Guardar y Continuar**: Guarda en Excel, genera overlay final y pasa a la siguiente hoja
      - **Omitir**: Salta esta hoja sin guardar
      - **Cerrar**: Sale de la revisión manual
 
 5. **Resultados**:
    - Cada resultado muestra: matrícula, puntaje, nota, estado
    - Emoji ✅ para hojas correctas, ⚠️ para las que necesitaron revisión
-   - Se genera imagen JPG con overlay: `{matricula}_{nombre_prueba}.jpg`
+   - **Imágenes organizadas**: Los overlays se guardan en carpetas separadas por prueba
+     - Ubicación: `carpeta_del_excel/nombre_prueba/matricula_prueba.jpg`
+     - Ejemplo: `C:\Documentos\test1\2023456789_test1.jpg`
+   - Notas guardadas en Excel sin colores de fondo (formato limpio)
 
 ## 📁 Estructura del Proyecto
 
@@ -252,9 +259,10 @@ El sistema ahora soporta PDFs con múltiples páginas, donde cada página contie
 - **Progreso detallado**:
   - PDF único: `"documento.pdf (5/20)"`
   - Multi-página: `"pruebas.pdf - Página 3/30 (Total: 15/47)"`
-- **Imágenes con sufijo**: Para evitar sobrescritura, las imágenes de PDFs multi-página incluyen número de página:
-  - Página única: `2023456789_Prueba1.jpg`
-  - Multi-página: `2023456789_Prueba1_p3.jpg`
+- **Imágenes organizadas en carpetas**: Los overlays se guardan en carpetas separadas por prueba:
+  - Estructura: `carpeta_excel/nombre_prueba/`
+  - Página única: `carpeta_excel/test1/2023456789_test1.jpg`
+  - Multi-página: `carpeta_excel/test1/2023456789_test1_p3.jpg`
 - **Mezcla de formatos**: Soporta mezclar PDFs de 1 página con PDFs multi-página en la misma sesión
 - **Manejo de errores**: Si una página falla, las demás continúan procesándose normalmente
 
@@ -279,21 +287,32 @@ El sistema ahora soporta PDFs con múltiples páginas, donde cada página contie
 
 ### Sistema de overlay visual
 
-- Círculos con borde de 2 píxeles de grosor (visual sutil pero claro)
+- Círculos con borde de 2-3 píxeles de grosor (visual sutil pero claro)
 - Colores según estado:
-  - Verde (0, 255, 0): Respuesta correcta del estudiante
-  - Rojo (0, 0, 255): Respuesta incorrecta del estudiante
+  - Verde brillante (#00FF00): Respuesta correcta del estudiante
+  - Rojo (0, 0, 255): Respuesta incorrecta del estudiante (incluye múltiples marcas)
   - Amarillo (0, 255, 255): Respuesta correcta según pauta (referencia visual)
-- Imágenes guardadas en formato JPG en la misma carpeta que el Excel
+- **Organización mejorada**: Imágenes guardadas en carpetas por prueba
+  - Estructura: `carpeta_excel/nombre_prueba/matricula_prueba.jpg`
+  - Ejemplo: Si Excel está en `C:\Docs\notas.xlsx` y prueba es "test1":
+    - Overlay: `C:\Docs\test1\2023456789_test1.jpg`
 
 ### Revisión manual inteligente
 
 - Umbral de confianza: 99%
-- Interfaz modal con zoom automático
-- Click interactivo en círculos (radio de detección: 1.5× radio del círculo)
+- **Interfaz optimizada para corrección eficiente:**
+  - Ventana redimensionable con imagen ajustada automáticamente
+  - Scroll vertical con rueda del mouse
+  - Scroll horizontal con Shift + rueda del mouse
+- **Sistema de toggle para máxima flexibilidad:**
+  - Click en círculo para marcar (si está desmarcado)
+  - Click en círculo para desmarcar (si está marcado)
+  - Soporte para múltiples alternativas por pregunta
+  - Radio de detección: 1.5× radio del círculo
+- **Círculos verde brillante (#00FF00)** para mejor visibilidad
 - Regeneración de overlay en tiempo real
-- Navegación entre múltiples hojas pendientes
-- Guardado automático en Excel y actualización de imagen
+- Navegación entre hojas con botón "◄ Anterior"
+- Guardado automático en Excel y actualización de imagen organizada en carpetas
 
 ## 🤝 Contribuciones
 
@@ -322,13 +341,16 @@ Si tienes preguntas o sugerencias, por favor abre un issue en el repositorio.
 - [x] Integración del cálculo de notas chileno con redondeo correcto
 - [x] Procesamiento por lotes de PDFs escaneados
 - [x] **Soporte multi-página** (PDFs con múltiples hojas, 1 estudiante por página)
-- [x] Sistema de revisión manual de respuestas ambiguas (confianza < 99%)
+- [x] **Sistema de revisión manual avanzado** con toggle para marcar/desmarcar
 - [x] Generación automática de imágenes con overlay visual
+- [x] **Organización de overlays en carpetas por prueba**
 - [x] Click interactivo para corrección manual de matrícula y respuestas
-- [x] Integración completa con Excel (lectura/escritura, múltiples pruebas)
+- [x] Soporte para múltiples alternativas por pregunta
+- [x] Integración completa con Excel (lectura/escritura, múltiples pruebas, sin colores)
 - [x] Sistema de calibración desde PDF
 - [x] Detección de notas duplicadas con opción de sobrescritura
 - [x] Prevención de saltos de columna en Excel
+- [x] Interfaz optimizada con scroll (vertical y horizontal)
 
 ### 🚧 Mejoras futuras (ver PROXIMOS_PASOS.md)
 
