@@ -51,6 +51,13 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.edited_matricula = None
         self.edited_respuestas = {}
 
+        # Track de círculos dibujados manualmente por el usuario
+        self.manual_circles = []  # Lista de círculos verdes dibujados por el usuario
+
+        # Factor de escala para la imagen
+        self.scale_factor = 1.0
+        self.display_width = 1100  # Ancho deseado para la imagen
+
         # Crear interfaz
         self.create_widgets()
 
@@ -115,39 +122,11 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self.on_shift_mousewheel)
 
-        # ===== PANEL DE CORRECCIÓN RÁPIDA =====
-        correction_frame = ctk.CTkFrame(self)
-        correction_frame.pack(fill="x", padx=10, pady=5)
-
-        ctk.CTkLabel(correction_frame, text="Corrección rápida:",
-                    font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=10)
-
-        ctk.CTkLabel(correction_frame, text="Pregunta:").pack(side="left", padx=5)
-        self.question_entry = ctk.CTkEntry(correction_frame, width=60)
-        self.question_entry.pack(side="left", padx=5)
-
-        ctk.CTkLabel(correction_frame, text="Respuesta:").pack(side="left", padx=5)
-
-        # Radio buttons para respuestas
-        self.answer_var = ctk.StringVar(value="")
-        for alt in ["A", "B", "C", "D", "E"]:
-            ctk.CTkRadioButton(correction_frame, text=alt, variable=self.answer_var,
-                              value=alt, command=self.on_quick_correction).pack(side="left", padx=2)
-
-        ctk.CTkButton(correction_frame, text="Aplicar", width=80,
-                     command=self.apply_quick_correction).pack(side="left", padx=10)
-
-        # Botón para limpiar respuesta
-        ctk.CTkButton(correction_frame, text="Limpiar Respuesta", width=120,
-                     command=self.clear_answer, fg_color="orange",
-                     hover_color="darkorange").pack(side="left", padx=5)
-
         # ===== INSTRUCCIONES =====
         instruction_frame = ctk.CTkFrame(self)
         instruction_frame.pack(fill="x", padx=10, pady=5)
 
-        instructions = ("💡 Instrucciones: Haz click en los círculos de la imagen para marcar/desmarcar respuestas. "
-                       "O usa la corrección rápida ingresando número de pregunta y seleccionando la respuesta.")
+        instructions = ("💡 Instrucciones: Haz click en los círculos de la imagen para marcar/desmarcar respuestas y matrícula.")
         ctk.CTkLabel(instruction_frame, text=instructions,
                     font=ctk.CTkFont(size=11), wraplength=1100).pack(pady=5)
 
@@ -168,10 +147,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                      command=self.save_and_continue,
                                      fg_color="green", hover_color="darkgreen")
         self.save_btn.pack(side="left", padx=10)
-
-        self.next_btn = ctk.CTkButton(nav_frame, text="Siguiente ►", width=120,
-                                     command=self.go_next)
-        self.next_btn.pack(side="left", padx=10)
 
         # Botón cerrar
         ctk.CTkButton(nav_frame, text="Cerrar", width=120,
@@ -197,8 +172,26 @@ class ManualReviewWindow(ctk.CTkToplevel):
         self.matricula_entry.delete(0, "end")
         self.matricula_entry.insert(0, self.edited_matricula)
 
-        # Cargar respuestas (hacer una copia para editar)
-        self.edited_respuestas = sheet['result']['respuestas'].copy()
+        # Cargar respuestas - ahora como diccionario de SETS para soportar múltiples alternativas
+        # Formato: {pregunta: set(alternativas)}
+        self.edited_respuestas = {}
+        for pregunta, alternativa in sheet['result']['respuestas'].items():
+            if alternativa is not None:
+                # Verificar si es múltiple desde la detección original
+                detail = sheet['detection_result']['respuestas'].get('details', {}).get(pregunta, {})
+                if detail.get('status') == 'multiple':
+                    # Obtener todas las alternativas marcadas
+                    marked_alts = detail.get('marked_alternatives', [alternativa])
+                    self.edited_respuestas[pregunta] = set(marked_alts)
+                else:
+                    # Respuesta única
+                    self.edited_respuestas[pregunta] = {alternativa}
+            else:
+                # Sin respuesta
+                self.edited_respuestas[pregunta] = set()
+
+        # Limpiar círculos manuales anteriores
+        self.manual_circles = []
 
         # Mostrar confianza
         confidence = sheet['result']['confidence']
@@ -211,31 +204,41 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
         # Actualizar estado de botones
         self.prev_btn.configure(state="normal" if self.current_index > 0 else "disabled")
-        self.next_btn.configure(state="normal" if self.current_index < total - 1 else "disabled")
 
     def load_image(self, sheet: Dict):
-        """Carga la imagen de overlay en el canvas"""
+        """Carga la imagen de overlay en el canvas - solo muestra detecciones en verde"""
         try:
-            # Leer imagen si ya está guardada, o generarla
-            if sheet['result'].get('image_path') and Path(sheet['result']['image_path']).exists():
-                # Cargar imagen guardada
-                image_bgr = cv2.imread(sheet['result']['image_path'])
-            else:
-                # Generar imagen de overlay (no debería pasar, pero por seguridad)
-                image_bgr = sheet.get('overlay_image')
+            # Obtener la imagen warped original
+            warped_image = sheet.get('warped_image')
 
-            if image_bgr is None:
+            if warped_image is None:
                 messagebox.showerror("Error", "No se pudo cargar la imagen de la hoja")
                 return
 
+            # Generar overlay de REVISIÓN (solo círculos verdes en detecciones, sin comparar con pauta)
+            review_overlay = self.create_review_overlay(
+                warped_image,
+                sheet['detection_result']
+            )
+
+            # Guardar imagen original (sin escalar) para generar overlay final
+            self.current_image_bgr = review_overlay
+
+            # Calcular factor de escala para ajustar imagen a la ventana
+            original_height, original_width = review_overlay.shape[:2]
+            self.scale_factor = self.display_width / original_width
+
+            # Redimensionar imagen para visualización
+            new_width = int(original_width * self.scale_factor)
+            new_height = int(original_height * self.scale_factor)
+            resized_image = cv2.resize(review_overlay, (new_width, new_height),
+                                      interpolation=cv2.INTER_AREA)
+
             # Convertir BGR a RGB
-            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            image_rgb = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)
 
             # Convertir a PIL Image
             pil_image = Image.fromarray(image_rgb)
-
-            # Guardar imagen original para referencia
-            self.current_image_bgr = image_bgr
             self.current_pil_image = pil_image
 
             # Convertir a PhotoImage para tkinter
@@ -249,8 +252,20 @@ class ManualReviewWindow(ctk.CTkToplevel):
             # Configurar región de scroll
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
+            # Dibujar círculos iniciales (detecciones + correcciones manuales)
+            self.redraw_all_circles()
+
         except Exception as e:
             messagebox.showerror("Error", f"Error al cargar imagen: {e}")
+
+    def create_review_overlay(self, warped_image, detection_result):
+        """
+        Retorna la imagen warped SIN CÍRCULOS
+        Los círculos se dibujarán en el canvas usando redraw_all_circles()
+        """
+        # Simplemente retornar la imagen sin modificar
+        # NO dibujar círculos aquí para evitar duplicados
+        return warped_image.copy()
 
     def on_mousewheel(self, event):
         """Maneja el scroll vertical con la rueda del ratón"""
@@ -262,27 +277,94 @@ class ManualReviewWindow(ctk.CTkToplevel):
         """Maneja el scroll horizontal con Shift + rueda del ratón"""
         self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def draw_feedback_circle(self, x, y, radius):
-        """Dibuja un círculo verde temporal como feedback visual"""
-        # Dibujar círculo verde temporal
+    def draw_permanent_circle(self, x, y, radius):
+        """Dibuja un círculo verde PERMANENTE en el canvas"""
+        # Escalar coordenadas según el factor de escala de la imagen
+        scaled_x = int(x * self.scale_factor)
+        scaled_y = int(y * self.scale_factor)
+        scaled_radius = int(radius * self.scale_factor)
+
+        # Dibujar círculo verde brillante/fluorescente permanente
         circle_id = self.canvas.create_oval(
-            x - radius,
-            y - radius,
-            x + radius,
-            y + radius,
-            outline="green",
+            scaled_x - scaled_radius,
+            scaled_y - scaled_radius,
+            scaled_x + scaled_radius,
+            scaled_y + scaled_radius,
+            outline="#00FF00",  # Verde brillante/fluorescente (lime green)
             width=3,
-            tags="feedback"
+            tags="manual_circle"
         )
 
-        # Eliminar el círculo después de 300ms
-        self.after(300, lambda: self.canvas.delete("feedback"))
+        # Guardar en la lista de círculos manuales
+        self.manual_circles.append({
+            'id': circle_id,
+            'x': x,  # Coordenadas originales (sin escalar)
+            'y': y,
+            'radius': radius
+        })
+
+    def redraw_all_circles(self):
+        """Redibuja TODOS los círculos verdes según el estado actual de edited_respuestas y edited_matricula"""
+        # Eliminar todos los círculos manuales existentes
+        self.canvas.delete("manual_circle")
+        self.manual_circles = []
+
+        calibration = self.omr_detector.calibration_data
+
+        # Redibujar círculos de MATRÍCULA
+        matricula_circles = calibration['matricula']
+        if len(self.edited_matricula) == 10:
+            for col_idx, digito_char in enumerate(self.edited_matricula):
+                if digito_char == '?':
+                    continue  # Saltar columnas sin dígito
+
+                try:
+                    digito = int(digito_char)
+                    col_num = col_idx + 1
+
+                    # Encontrar el círculo correspondiente
+                    matching_circle = next(
+                        (c for c in matricula_circles
+                         if c['columna'] == col_num and c['digito'] == digito),
+                        None
+                    )
+
+                    if matching_circle:
+                        self.draw_permanent_circle(
+                            matching_circle['x'],
+                            matching_circle['y'],
+                            matching_circle['radius']
+                        )
+                except ValueError:
+                    continue
+
+        # Redibujar círculos de RESPUESTAS
+        respuestas_circles = calibration['respuestas']
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            for alternativa in alternativas_set:
+                # Encontrar el círculo correspondiente
+                matching_circle = next(
+                    (c for c in respuestas_circles
+                     if c['pregunta'] == pregunta and c['alternativa'] == alternativa),
+                    None
+                )
+
+                if matching_circle:
+                    self.draw_permanent_circle(
+                        matching_circle['x'],
+                        matching_circle['y'],
+                        matching_circle['radius']
+                    )
 
     def on_image_click(self, event):
-        """Maneja clicks en la imagen para seleccionar respuestas o matrícula"""
-        # Obtener coordenadas del click en la imagen (considerando scroll)
+        """Maneja clicks en la imagen para seleccionar/deseleccionar respuestas o matrícula (TOGGLE)"""
+        # Obtener coordenadas del click en el canvas (considerando scroll)
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
+
+        # Convertir a coordenadas de imagen original (sin escala)
+        image_x = int(canvas_x / self.scale_factor)
+        image_y = int(canvas_y / self.scale_factor)
 
         calibration = self.omr_detector.calibration_data
 
@@ -295,8 +377,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (en coordenadas originales)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance_matricula:
@@ -308,28 +390,31 @@ class ManualReviewWindow(ctk.CTkToplevel):
             columna = clicked_matricula['columna']
             digito = clicked_matricula['digito']
 
-            # Dibujar feedback visual inmediato
-            self.draw_feedback_circle(clicked_matricula['x'], clicked_matricula['y'], clicked_matricula['radius'])
+            # TOGGLE: Verificar si este dígito ya está seleccionado en esta columna
+            matricula_list = list(self.edited_matricula) if len(self.edited_matricula) == 10 else ['?'] * 10
+            current_digit = matricula_list[columna - 1]
+
+            if current_digit == str(digito):
+                # Ya estaba seleccionado → DESMARCAR (poner '?')
+                matricula_list[columna - 1] = '?'
+                feedback_msg = f"Matrícula col {columna}: Desmarcado"
+            else:
+                # No estaba seleccionado → MARCAR
+                matricula_list[columna - 1] = str(digito)
+                feedback_msg = f"Matrícula col {columna}: {digito}"
 
             # Actualizar matrícula
-            # Convertir matrícula actual a lista de dígitos
-            matricula_list = list(self.edited_matricula) if len(self.edited_matricula) == 10 else ['0'] * 10
-
-            # Actualizar el dígito en la columna correspondiente (columna empieza en 1)
-            matricula_list[columna - 1] = str(digito)
-
-            # Convertir de vuelta a string
             self.edited_matricula = ''.join(matricula_list)
 
             # Actualizar entry
             self.matricula_entry.delete(0, "end")
             self.matricula_entry.insert(0, self.edited_matricula)
 
-            # Regenerar imagen con overlay actualizado
-            self.regenerate_overlay()
+            # Redibujar todos los círculos
+            self.redraw_all_circles()
 
             # Mostrar feedback
-            self.show_feedback(f"Matrícula col {columna}: {digito}")
+            self.show_feedback(feedback_msg)
             return
 
         # Si no fue click en matrícula, buscar en círculos de respuesta
@@ -341,8 +426,8 @@ class ManualReviewWindow(ctk.CTkToplevel):
             x, y = circle['x'], circle['y']
             radius = circle['radius']
 
-            # Calcular distancia del click al centro del círculo
-            distance = np.sqrt((canvas_x - x)**2 + (canvas_y - y)**2)
+            # Calcular distancia del click al centro del círculo (en coordenadas originales)
+            distance = np.sqrt((image_x - x)**2 + (image_y - y)**2)
 
             # Si está dentro del círculo y es el más cercano
             if distance <= radius * 1.5 and distance < min_distance:
@@ -354,44 +439,86 @@ class ManualReviewWindow(ctk.CTkToplevel):
             pregunta = clicked_circle['pregunta']
             alternativa = clicked_circle['alternativa']
 
-            # Dibujar feedback visual inmediato
-            self.draw_feedback_circle(clicked_circle['x'], clicked_circle['y'], clicked_circle['radius'])
+            # TOGGLE: Verificar si esta alternativa ya está en el set
+            if pregunta not in self.edited_respuestas:
+                self.edited_respuestas[pregunta] = set()
 
-            # Actualizar respuesta
-            self.edited_respuestas[pregunta] = alternativa
+            if alternativa in self.edited_respuestas[pregunta]:
+                # Ya estaba seleccionada → DESMARCAR (eliminar del set)
+                self.edited_respuestas[pregunta].remove(alternativa)
+                feedback_msg = f"P{pregunta}: {alternativa} desmarcado"
+            else:
+                # No estaba seleccionada → MARCAR (agregar al set)
+                self.edited_respuestas[pregunta].add(alternativa)
+                feedback_msg = f"P{pregunta}: {alternativa} marcado"
 
-            # Regenerar imagen con overlay actualizado
-            self.regenerate_overlay()
+            # Redibujar todos los círculos
+            self.redraw_all_circles()
 
             # Mostrar feedback
-            self.show_feedback(f"P{pregunta}: {alternativa}")
+            self.show_feedback(feedback_msg)
 
-    def regenerate_overlay(self):
-        """Regenera la imagen de overlay con las respuestas editadas"""
+    def generate_final_overlay(self, sheet: Dict):
+        """
+        Genera el overlay FINAL con comparación de pauta y colores de corrección
+        Solo se llama al guardar, NO durante la edición
+        """
         try:
-            # Obtener sheet actual
-            sheet = self.sheets_to_review[self.current_index]
-
             # Actualizar details de respuestas para incluir correcciones manuales
             original_details = sheet['detection_result']['respuestas'].get('details', {})
             updated_details = {}
+            final_respuestas = {}  # {pregunta: alternativa o None}
 
-            # Para cada respuesta editada, crear o actualizar su detail
-            for pregunta, respuesta in self.edited_respuestas.items():
-                if pregunta in original_details:
-                    # Si ya existía, actualizar
-                    updated_details[pregunta] = original_details[pregunta].copy()
-                    updated_details[pregunta]['manually_corrected'] = True
-                else:
-                    # Si no existía (fue agregada manualmente), crear detail nuevo
-                    # IMPORTANTE: Usar 'status': 'ok' para que create_visual_overlay dibuje el círculo
+            # Para cada pregunta editada, determinar la respuesta final
+            for pregunta, alternativas_set in self.edited_respuestas.items():
+                num_alternativas = len(alternativas_set)
+
+                if num_alternativas == 0:
+                    # Sin respuesta (se eliminaron todas las marcas)
+                    final_respuestas[pregunta] = None
                     updated_details[pregunta] = {
-                        'status': 'ok',  # Estado OK para que se dibuje correctamente
-                        'alternativa': respuesta,  # Alternativa seleccionada
-                        'confidence': 100.0,   # Alta confianza (corrección manual)
+                        'status': 'empty',
+                        'alternativa': None,
+                        'confidence': 100.0,
                         'manually_corrected': True,
-                        'fill_percentage': 100.0,  # Completamente marcado (manual)
-                        'difference': 100.0  # Diferencia máxima (manual)
+                        'fill_percentage': 0.0,
+                        'difference': 0.0
+                    }
+                elif num_alternativas == 1:
+                    # Respuesta única
+                    alternativa = list(alternativas_set)[0]
+                    final_respuestas[pregunta] = alternativa
+
+                    if pregunta in original_details:
+                        # Actualizar detail existente
+                        updated_details[pregunta] = original_details[pregunta].copy()
+                        updated_details[pregunta]['manually_corrected'] = True
+                        updated_details[pregunta]['alternativa'] = alternativa
+                        updated_details[pregunta]['status'] = 'ok'
+                    else:
+                        # Crear detail nuevo
+                        updated_details[pregunta] = {
+                            'status': 'ok',
+                            'alternativa': alternativa,
+                            'confidence': 100.0,
+                            'manually_corrected': True,
+                            'fill_percentage': 100.0,
+                            'difference': 100.0
+                        }
+                else:
+                    # Múltiples respuestas (2 o más)
+                    # Guardar la primera alternativa como respuesta principal (para compatibilidad)
+                    # Pero el detail indicará que son múltiples
+                    final_respuestas[pregunta] = list(alternativas_set)[0]
+
+                    updated_details[pregunta] = {
+                        'status': 'multiple',
+                        'alternativa': list(alternativas_set)[0],
+                        'marked_alternatives': list(alternativas_set),
+                        'confidence': 100.0,
+                        'manually_corrected': True,
+                        'fill_percentage': 100.0,
+                        'difference': 100.0
                     }
 
             # Copiar detalles de preguntas no editadas
@@ -440,7 +567,7 @@ class ManualReviewWindow(ctk.CTkToplevel):
             detection_result = {
                 'matricula': matricula_detection,
                 'respuestas': {
-                    'respuestas': self.edited_respuestas.copy(),
+                    'respuestas': final_respuestas,  # Usar final_respuestas en lugar de edited_respuestas
                     'details': updated_details,
                     'confidence': 100.0,  # Alta confianza por corrección manual
                     'success': True
@@ -449,28 +576,18 @@ class ManualReviewWindow(ctk.CTkToplevel):
                 'success': True
             }
 
-            # Generar nuevo overlay
+            # Generar overlay final con comparación de pauta
             overlay = self.omr_detector.create_visual_overlay(
                 sheet['warped_image'],
                 detection_result,
                 answer_key=self.app_data.get('answer_key')
             )
 
-            # Convertir y mostrar
-            image_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(image_rgb)
-
-            self.current_image_bgr = overlay
-            self.current_pil_image = pil_image
-            self.photo_image = ImageTk.PhotoImage(pil_image)
-
-            self.canvas.delete("all")
-            self.image_id = self.canvas.create_image(0, 0, anchor="nw",
-                                                     image=self.photo_image)
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            return overlay
 
         except Exception as e:
-            print(f"Error al regenerar overlay: {e}")
+            print(f"Error al generar overlay final: {e}")
+            return None
 
     def show_feedback(self, message: str):
         """Muestra mensaje temporal de feedback"""
@@ -480,69 +597,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
 
         # Restaurar después de 2 segundos
         self.after(2000, lambda: self.confidence_label.configure(text=original_text))
-
-    def on_quick_correction(self):
-        """Callback cuando se selecciona una respuesta en corrección rápida"""
-        pass  # Solo para actualizar el radio button
-
-    def apply_quick_correction(self):
-        """Aplica la corrección rápida ingresada manualmente"""
-        try:
-            question_str = self.question_entry.get().strip()
-            if not question_str:
-                messagebox.showwarning("Advertencia", "Ingresa el número de pregunta")
-                return
-
-            question = int(question_str)
-            answer = self.answer_var.get()
-
-            if not answer:
-                messagebox.showwarning("Advertencia", "Selecciona una respuesta")
-                return
-
-            # Verificar que la pregunta esté en rango
-            num_questions = self.app_data.get('num_questions', 100)
-            if question < 1 or question > num_questions:
-                messagebox.showerror("Error",
-                                   f"Pregunta debe estar entre 1 y {num_questions}")
-                return
-
-            # Actualizar respuesta
-            self.edited_respuestas[question] = answer
-
-            # Regenerar overlay
-            self.regenerate_overlay()
-
-            # Limpiar campos
-            self.question_entry.delete(0, "end")
-            self.answer_var.set("")
-
-            # Mostrar feedback
-            self.show_feedback(f"P{question}: {answer}")
-
-        except ValueError:
-            messagebox.showerror("Error", "Número de pregunta inválido")
-
-    def clear_answer(self):
-        """Limpia/elimina una respuesta"""
-        try:
-            question_str = self.question_entry.get().strip()
-            if not question_str:
-                messagebox.showwarning("Advertencia", "Ingresa el número de pregunta")
-                return
-
-            question = int(question_str)
-
-            # Eliminar respuesta
-            if question in self.edited_respuestas:
-                del self.edited_respuestas[question]
-                self.regenerate_overlay()
-                self.show_feedback(f"P{question}: Respuesta eliminada")
-            else:
-                messagebox.showinfo("Info", "Esa pregunta no tiene respuesta")
-
-        except ValueError:
-            messagebox.showerror("Error", "Número de pregunta inválido")
 
     def save_and_continue(self):
         """Guarda la hoja actual y continúa con la siguiente"""
@@ -555,19 +609,80 @@ class ManualReviewWindow(ctk.CTkToplevel):
                                       "La matrícula no tiene 10 dígitos. ¿Continuar de todos modos?"):
                 return
 
+        # Validar que la matrícula solo contenga dígitos (para nombre de archivo)
+        if not new_matricula.isdigit():
+            messagebox.showerror("Error",
+                               "La matrícula debe contener solo dígitos (0-9)\n"
+                               "Por favor corrige la matrícula antes de guardar.")
+            return
+
         # Actualizar matrícula editada
         self.edited_matricula = new_matricula
 
         # Actualizar resultado
         sheet = self.sheets_to_review[self.current_index]
         sheet['result']['matricula'] = new_matricula
-        sheet['result']['respuestas'] = self.edited_respuestas.copy()
+
+        # Convertir edited_respuestas (sets) a formato simple para guardar
+        final_respuestas_simple = {}
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            if len(alternativas_set) == 1:
+                # Respuesta única
+                final_respuestas_simple[pregunta] = list(alternativas_set)[0]
+            elif len(alternativas_set) > 1:
+                # Múltiples respuestas - guardar la primera (pero el overlay mostrará todas)
+                final_respuestas_simple[pregunta] = list(alternativas_set)[0]
+            # Si len == 0, no se guarda (sin respuesta)
+
+        sheet['result']['respuestas'] = final_respuestas_simple
+
+        # IMPORTANTE: Actualizar image_path con la nueva matrícula corregida
+        # Esto es crítico para que el archivo se guarde con el nombre correcto
+        old_image_path = sheet['result'].get('image_path')
+        if old_image_path:
+            # Reconstruir el path con la nueva matrícula
+            from pathlib import Path
+            old_path = Path(old_image_path)
+
+            # El output_dir es la carpeta de la prueba (ej: excel_dir/test_name/)
+            # Mantener esta estructura
+            output_dir = old_path.parent
+
+            # Asegurar que la carpeta existe (en caso de que no exista por alguna razón)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Obtener el nombre de prueba del path original
+            # Formato: {matricula}_{test_name}.jpg o {matricula}_{test_name}_pX.jpg
+            old_filename = old_path.stem  # nombre sin extensión
+
+            # Extraer la parte después del primer "_" (que es el nombre de prueba)
+            parts = old_filename.split('_', 1)
+            if len(parts) > 1:
+                test_part = parts[1]  # Esto puede ser "test2" o "test2_p1"
+                new_filename = f"{new_matricula}_{test_part}.jpg"
+            else:
+                # Fallback: usar solo la matrícula
+                new_filename = f"{new_matricula}.jpg"
+
+            new_image_path = output_dir / new_filename
+            sheet['result']['image_path'] = str(new_image_path)
+
+            print(f"📝 Ruta de imagen actualizada:")
+            print(f"   Antigua: {old_image_path}")
+            print(f"   Nueva:   {new_image_path}")
 
         # Recalcular nota
         self.recalculate_grade(sheet)
 
-        # IMPORTANTE: Regenerar overlay con todas las correcciones antes de guardar
-        self.regenerate_overlay()
+        # IMPORTANTE: Generar overlay FINAL con comparación de pauta
+        final_overlay = self.generate_final_overlay(sheet)
+
+        if final_overlay is None:
+            messagebox.showerror("Error", "No se pudo generar el overlay final")
+            return
+
+        # Actualizar la imagen actual con el overlay final
+        self.current_image_bgr = final_overlay
 
         # Guardar en Excel
         if self.on_save_callback:
@@ -604,12 +719,19 @@ class ManualReviewWindow(ctk.CTkToplevel):
         correctas = 0
         incorrectas = 0
 
-        for pregunta, respuesta in sheet['result']['respuestas'].items():
-            if respuesta is None:
+        # Recorrer las respuestas editadas (ahora son sets)
+        for pregunta, alternativas_set in self.edited_respuestas.items():
+            # Si no hay alternativas o hay múltiples, es incorrecta
+            if len(alternativas_set) == 0 or len(alternativas_set) > 1:
+                if pregunta in answer_key:
+                    incorrectas += 1
                 continue
 
+            # Si hay exactamente una alternativa, verificar si es correcta
+            alternativa = list(alternativas_set)[0]
+
             if pregunta in answer_key:
-                if respuesta == answer_key[pregunta]:
+                if alternativa == answer_key[pregunta]:
                     correctas += 1
                 else:
                     incorrectas += 1
@@ -662,12 +784,6 @@ class ManualReviewWindow(ctk.CTkToplevel):
         """Va a la hoja anterior"""
         if self.current_index > 0:
             self.current_index -= 1
-            self.load_current_sheet()
-
-    def go_next(self):
-        """Va a la siguiente hoja"""
-        if self.current_index < len(self.sheets_to_review) - 1:
-            self.current_index += 1
             self.load_current_sheet()
 
     def close_window(self):

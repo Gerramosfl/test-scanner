@@ -467,18 +467,22 @@ class GradingTab:
 
                 # Determinar dónde guardar la imagen
                 if self.app_data.get('excel_handler'):
-                    # Guardar en la misma carpeta que el Excel
+                    # Guardar en una carpeta con el nombre de la prueba dentro del directorio del Excel
                     excel_path = self.app_data['excel_handler'].filepath
-                    output_dir = Path(excel_path).parent
+                    base_dir = Path(excel_path).parent
                 else:
                     # Guardar en la carpeta del PDF si no hay Excel configurado
-                    output_dir = Path(pdf_path).parent
+                    base_dir = Path(pdf_path).parent
 
                 # Crear nombre de archivo: {matricula}_{nombre_prueba}.jpg
                 # Para PDFs multi-página, agregar sufijo de página
                 test_name = self.app_data.get('test_name', 'Prueba')
                 # Limpiar nombre de prueba para que sea válido en sistema de archivos
                 safe_test_name = "".join(c for c in test_name if c.isalnum() or c in (' ', '_', '-')).strip()
+
+                # Crear carpeta con el nombre de la prueba para organizar los overlays
+                output_dir = base_dir / safe_test_name
+                output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Si es multi-página, agregar sufijo "_pX" para evitar sobrescritura
                 if total_pages > 1:

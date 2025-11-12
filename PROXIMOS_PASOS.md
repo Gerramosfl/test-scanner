@@ -2,7 +2,7 @@
 
 ## ✅ Estado Actual del Proyecto
 
-El sistema está **completamente funcional** y listo para uso en producción. Se ha migrado exitosamente de un enfoque basado en cámara a un flujo de trabajo basado en **escaneo de documentos a PDF**.
+El sistema está **casi finalizado (~98% completado)** y listo para uso en producción. Se ha completado exitosamente la implementación de todas las funcionalidades core, incluyendo un sistema avanzado de revisión manual optimizado.
 
 ### 🎉 Funcionalidades Implementadas
 
@@ -377,18 +377,23 @@ python calibrate_from_pdf.py hoja_blanca_escaneada.pdf
 
 ### Mejoras Sugeridas
 
-#### 1. Corrección Manual de Respuestas Ambiguas ✅ IMPLEMENTADO
-- ✅ Interfaz modal para revisar respuestas con confianza < 99%
-- ✅ Click interactivo en círculos para corregir
+#### 1. Sistema de Revisión Manual Avanzado ✅ COMPLETAMENTE IMPLEMENTADO
+- ✅ Interfaz modal optimizada para revisar respuestas con confianza < 99%
+- ✅ **Sistema de toggle**: Click para marcar/desmarcar respuestas y matrícula
+- ✅ Soporte para múltiples alternativas por pregunta
+- ✅ Scroll vertical (rueda del mouse) y horizontal (Shift + rueda)
+- ✅ Círculos verde brillante (#00FF00) para máxima visibilidad
 - ✅ Regeneración de overlay en tiempo real
-- ✅ Navegación entre múltiples hojas pendientes
+- ✅ Navegación simplificada (botón "◄ Anterior", "Guardar y Continuar")
+- ✅ Interfaz limpia (sin corrección rápida, sin zoom, sin botón "Siguiente")
 - ✅ Guardado automático en Excel tras correcciones
 
-#### 2. Modo de Revisión Visual ✅ IMPLEMENTADO
+#### 2. Modo de Revisión Visual Mejorado ✅ IMPLEMENTADO
 - ✅ Generación automática de imágenes con overlay visual
-- ✅ Colores: verde (correcta), rojo (incorrecta), amarillo (pauta)
-- ✅ Guardado como `{matricula}_{nombre_prueba}.jpg`
+- ✅ Colores: verde brillante (correcta), rojo (incorrecta), amarillo (pauta)
+- ✅ **Organización en carpetas por prueba:** `carpeta_excel/nombre_prueba/matricula_prueba.jpg`
 - ✅ Se guarda después de revisión manual si es necesario
+- ✅ Excel sin colores de fondo (formato limpio y profesional)
 
 #### 3. Soporte Multi-página ✅ IMPLEMENTADO (Noviembre 2025)
 - ✅ Permite PDFs con múltiples hojas (1 estudiante por página)
@@ -396,7 +401,7 @@ python calibrate_from_pdf.py hoja_blanca_escaneada.pdf
 - ✅ Display: "documento.pdf (5 páginas)"
 - ✅ Procesamiento independiente de cada página
 - ✅ Progreso detallado: "Página 3/30 (Total: 15/47)"
-- ✅ Imágenes con sufijos: `{matricula}_{prueba}_p3.jpg`
+- ✅ **Imágenes organizadas en carpetas:** `carpeta_excel/test1/2023456789_test1_p3.jpg`
 - ✅ Mezcla de PDFs de 1 página con PDFs multi-página
 - ✅ Manejo de errores por página
 
@@ -538,14 +543,24 @@ Antes de procesar hojas de una prueba real:
 
 ## 🎉 Conclusión
 
-El **Test Scanner** está completamente funcional y listo para uso en producción. El sistema ha sido optimizado para trabajar con escáneres de documentos (300 DPI) y puede procesar lotes completos de pruebas de manera automática y confiable.
+El **Test Scanner** está **casi finalizado (~98% completado)** y listo para uso en producción. El sistema ha sido optimizado para trabajar con escáneres de documentos (300 DPI) y puede procesar lotes completos de pruebas de manera automática y confiable.
 
 **Características destacadas:**
 - ✅ Procesamiento por lotes rápido (~2.5s por hoja)
 - ✅ Alta precisión (>98% de confianza)
-- ✅ Interfaz intuitiva y fácil de usar
+- ✅ **Sistema de revisión manual avanzado con toggle**
+- ✅ **Overlays organizados en carpetas por prueba**
+- ✅ **Excel sin colores de fondo (formato limpio)**
+- ✅ Interfaz intuitiva optimizada y fácil de usar
 - ✅ Integración transparente con Excel
 - ✅ Algoritmo robusto que ignora texto impreso
+- ✅ Soporte para múltiples alternativas por pregunta
+
+**Últimas optimizaciones (Noviembre 10, 2025):**
+- ✅ Interfaz de revisión manual simplificada
+- ✅ Sistema de toggle para marcar/desmarcar
+- ✅ Círculos verde brillante para mejor visibilidad
+- ✅ Organización automática de archivos en carpetas
 
 **Soporte y Mejoras:**
 - Para reportar problemas o sugerir mejoras, crear un issue en el repositorio
@@ -553,6 +568,6 @@ El **Test Scanner** está completamente funcional y listo para uso en producció
 
 ---
 
-**Última actualización**: Noviembre 2025
-**Versión del sistema**: 2.0 (Basado en PDFs)
-**Estado**: ✅ Producción
+**Última actualización**: 10 de noviembre de 2025
+**Versión del sistema**: 2.1 (Optimizado y casi finalizado)
+**Estado**: ✅ Listo para producción (~98% completado)

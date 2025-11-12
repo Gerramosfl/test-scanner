@@ -3,7 +3,7 @@ Manejador de archivos Excel para guardar y recuperar calificaciones
 """
 
 import openpyxl
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment
 import os
 
 
@@ -93,8 +93,6 @@ class ExcelHandler:
                 header_cell.value = test_name
                 header_cell.font = Font(bold=True, size=12)
                 header_cell.alignment = Alignment(horizontal='center', vertical='center')
-                header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4",
-                                               fill_type="solid")
                 return col
 
         # Si todas las columnas están ocupadas, usar la siguiente
@@ -103,8 +101,6 @@ class ExcelHandler:
         header_cell.value = test_name
         header_cell.font = Font(bold=True, size=12)
         header_cell.alignment = Alignment(horizontal='center', vertical='center')
-        header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4",
-                                       fill_type="solid")
 
         return new_col
     
@@ -173,15 +169,7 @@ class ExcelHandler:
             cell = self.sheet.cell(row, col)
             cell.value = grade
             cell.alignment = Alignment(horizontal='center', vertical='center')
-            
-            # Aplicar color según aprobación (asumiendo 4.0 como nota de aprobación)
-            if grade >= 4.0:
-                cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", 
-                                       fill_type="solid")  # Verde claro
-            else:
-                cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", 
-                                       fill_type="solid")  # Rojo claro
-            
+
             # Guardar el archivo
             self.workbook.save(self.filepath)
             
