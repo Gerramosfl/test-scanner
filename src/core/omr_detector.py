@@ -163,6 +163,10 @@ class OMRDetector:
         # Si un círculo es 15% más oscuro que los demás, es el marcado
         MIN_DIFFERENCE_PERCENTAGE = 15.0
 
+        # Umbral mínimo para considerar que hay intención de marcar (75%)
+        # El texto impreso dentro de los círculos oscurece entre 45-70%, por eso usamos 75%
+        MIN_FILL_THRESHOLD = 75.0
+
         # Procesar cada columna (10 columnas para 10 dígitos)
         for col in range(1, MATRICULA_DIGITS + 1):
             # Obtener círculos de esta columna
@@ -196,8 +200,8 @@ class OMRDetector:
             # Verificar que el más oscuro sea SIGNIFICATIVAMENTE más oscuro que el segundo
             difference = darkest['fill_percentage'] - second_darkest['fill_percentage']
 
-            if difference >= MIN_DIFFERENCE_PERCENTAGE:
-                # Hay una marca clara
+            if difference >= MIN_DIFFERENCE_PERCENTAGE and darkest['fill_percentage'] >= MIN_FILL_THRESHOLD:
+                # Hay una marca clara Y supera el umbral mínimo de relleno
                 detected_digits.append(str(darkest['digito']))
                 result['details'][f'col_{col}'] = {
                     'digito': darkest['digito'],
@@ -205,8 +209,11 @@ class OMRDetector:
                     'difference': difference
                 }
             else:
-                # No hay diferencia suficiente (posiblemente sin marcar o marca ambigua)
-                result['errors'].append(f"Columna {col}: Marca ambigua o sin marcar (diferencia: {difference:.1f}%)")
+                # No hay diferencia suficiente o no supera el umbral mínimo (sin marcar o marca ambigua)
+                if darkest['fill_percentage'] < MIN_FILL_THRESHOLD:
+                    result['errors'].append(f"Columna {col}: Sin marca (relleno máximo: {darkest['fill_percentage']:.1f}%)")
+                else:
+                    result['errors'].append(f"Columna {col}: Marca ambigua (diferencia: {difference:.1f}%)")
                 detected_digits.append('?')
 
         # Construir matrícula
@@ -286,12 +293,13 @@ class OMRDetector:
             # Verificar que el más oscuro sea SIGNIFICATIVAMENTE más oscuro que el segundo
             difference = darkest['fill_percentage'] - second_darkest['fill_percentage']
 
-            # Umbral mínimo para considerar que hay intención de marcar (50%)
+            # Umbral mínimo para considerar que hay intención de marcar (75%)
             # Esto evita falsos positivos cuando ninguna alternativa está realmente marcada
-            MIN_FILL_THRESHOLD = 50.0
+            # El texto impreso dentro de los círculos oscurece entre 45-70%, por eso usamos 75%
+            MIN_FILL_THRESHOLD = 75.0
 
-            if difference >= MIN_DIFFERENCE_PERCENTAGE:
-                # Hay una marca clara
+            if difference >= MIN_DIFFERENCE_PERCENTAGE and darkest['fill_percentage'] >= MIN_FILL_THRESHOLD:
+                # Hay una marca clara Y supera el umbral mínimo de relleno
                 result['respuestas'][pregunta] = darkest['alternativa']
                 result['details'][pregunta] = {
                     'status': 'ok',
@@ -305,8 +313,8 @@ class OMRDetector:
                 if darkest['fill_percentage'] >= MIN_FILL_THRESHOLD:
                     # MÚLTIPLE MARCA: Hay al menos una marca real y poca diferencia
                     # Identificar las alternativas que están MUY CERCANAS en intensidad a la más oscura
-                    # (dentro del 20% de diferencia respecto a la más oscura)
-                    MAX_RANGE_FROM_DARKEST = 20.0
+                    # (dentro del 15% de diferencia respecto a la más oscura)
+                    MAX_RANGE_FROM_DARKEST = 15.0
                     marked_alternatives = [
                         fp['alternativa']
                         for fp in fill_percentages
