@@ -27,7 +27,7 @@ Test Scanner es una aplicación de escritorio que permite calificar automáticam
 - ✅ **Cálculo según norma chilena**: Escala 1.0 - 7.0 con redondeo "half up" (centésima ≥ 5 redondea hacia arriba)
 - ✅ **Alertas de duplicados**: Detecta notas duplicadas con opción de sobrescritura
 - ✅ **Múltiples pruebas por curso**: Columnas independientes en Excel para cada evaluación
-- ✅ **Sistema calibrable**: Herramienta incluida para calibrar posiciones de círculos según tu hoja oficial
+- ✅ **Sistema pre-calibrado**: Listo para usar, incluye calibración de hoja oficial (archivo `config/calibration_data.json` ya incluido)
 
 ## 🚀 Instalación
 
@@ -68,25 +68,11 @@ python main.py
 
 ## 📖 Uso
 
+**Nota importante**: El sistema ya viene pre-calibrado para la hoja oficial del colegio. El archivo `config/calibration_data.json` está incluido en el repositorio, por lo que puedes comenzar a usar el sistema inmediatamente después de instalar las dependencias.
+
 ### Flujo de trabajo completo
 
-#### 1. Calibración (solo una vez)
-
-Antes de usar el sistema por primera vez, debes calibrar las posiciones de los círculos usando tu hoja oficial:
-
-```bash
-python calibrate_from_pdf.py examples/hoja_de_respuestas_con_aruco_V4.pdf
-```
-
-Este proceso:
-1. Convierte el PDF a imagen de alta resolución
-2. Detecta marcadores ArUco y corrige perspectiva
-3. Te pide marcar 16 puntos de referencia (4 matrícula + 12 respuestas)
-4. Genera `config/calibration_data.json` con las posiciones de todos los círculos
-
-**Nota**: Solo necesitas hacer esto una vez. El archivo de calibración se usará para todas las futuras correcciones.
-
-#### 2. Configuración de la prueba
+#### 1. Configuración de la prueba
 
 En la pestaña **Configuración**:
 
@@ -98,7 +84,7 @@ En la pestaña **Configuración**:
 - **Archivo Excel**: Carga el archivo con la lista de estudiantes (columnas: Matrícula, Nombre)
 - **Nombre de la prueba**: Ejemplo: "Prueba 1", "Examen Final"
 
-#### 3. Construcción de la pauta
+#### 2. Construcción de la pauta
 
 En la pestaña **Pauta**:
 
@@ -106,7 +92,7 @@ En la pestaña **Pauta**:
 - Solo las preguntas indicadas en la configuración estarán habilitadas
 - Guarda la pauta cuando termines
 
-#### 4. Procesamiento de pruebas
+#### 3. Procesamiento de pruebas
 
 En la pestaña **Calificación**:
 

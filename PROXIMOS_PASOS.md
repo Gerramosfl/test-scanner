@@ -32,36 +32,16 @@ El sistema está **casi finalizado (~98% completado)** y listo para uso en produ
 
 ## 🚀 Flujo de Trabajo Actual
 
-### 1️⃣ Preparación Inicial (Una sola vez)
+### 1️⃣ Preparación Inicial
 
-#### A. Calibración del Sistema
+**Nota importante**: El sistema ya viene pre-calibrado para la hoja oficial del colegio. El archivo `config/calibration_data.json` está incluido en el repositorio, por lo que no necesitas realizar ninguna calibración.
 
-El sistema necesita ser calibrado **una vez** usando una hoja escaneada en blanco:
-
-```bash
-python calibrate_from_pdf.py hoja_blanca_escaneada.pdf
-```
-
-**¿Qué hace este script?**
-1. Convierte el PDF a imagen de alta resolución (300 DPI)
-2. Detecta los 4 marcadores ArUco y corrige la perspectiva
-3. Te pide marcar manualmente 16 puntos de referencia:
-   - 4 puntos de matrícula (esquinas)
-   - 12 puntos de respuestas (3 puntos por cada una de las 4 columnas)
-4. Calcula automáticamente las posiciones de los 600 círculos restantes mediante interpolación bilineal
-5. Guarda todo en `config/calibration_data.json`
-
-**Controles durante calibración:**
-- Click en el centro de cada círculo cuando se te indique
-- `R` = Reiniciar si te equivocas
-- `S` = Guardar cuando termines
-
-#### B. Archivos Necesarios
+#### Archivos Necesarios
 
 Asegúrate de tener:
-- ✅ `config/calibration_data.json` (generado por calibración)
-- ✅ `examples/hoja_respuestas.pdf` (hoja oficial del colegio)
-- ✅ Un archivo Excel con la lista de estudiantes (columnas: Nombre, Apellido, Matrícula)
+- ✅ `config/calibration_data.json` (ya incluido en el repositorio)
+- ✅ `examples/hoja_de_respuestas_con_aruco_V4.pdf` (hoja oficial del colegio - para imprimir)
+- ✅ Un archivo Excel con la lista de estudiantes (columnas: Matrícula, Nombre)
 
 ---
 
@@ -233,11 +213,11 @@ Nota: 2.1 (escala chilena)
 
 ## 🧪 Scripts de Desarrollo
 
-### 1. Calibración desde PDF
+### 1. Calibración desde PDF (Solo para Desarrolladores)
 ```bash
-python calibrate_from_pdf.py hoja_blanca.pdf
+python calibrate_from_pdf.py hoja_personalizada.pdf
 ```
-Genera `config/calibration_data.json` con posiciones de 600 círculos.
+**Nota**: El sistema ya viene pre-calibrado. Este script solo es necesario si deseas usar una hoja de respuestas diferente a la oficial. Sobrescribirá el archivo `config/calibration_data.json` existente.
 
 ### 2. Prueba con PDFs reales
 ```bash
@@ -328,12 +308,9 @@ También genera `result_hoja_alumno_001.jpg` con overlay visual:
 
 ### Error: "No se pudo inicializar el sistema"
 
-**Causa**: Falta el archivo de calibración
+**Causa**: El archivo `config/calibration_data.json` no se encuentra o está dañado
 
-**Solución**:
-```bash
-python calibrate_from_pdf.py hoja_blanca_escaneada.pdf
-```
+**Solución**: Verifica que el archivo exista en la carpeta `config/`. Este archivo debería estar incluido en el repositorio. Si falta, descarga nuevamente el repositorio o contacta al desarrollador.
 
 ### Error: "No se detectó la hoja"
 
@@ -517,9 +494,9 @@ Estructura:
 Antes de procesar hojas de una prueba real:
 
 ### Sistema
-- [ ] `config/calibration_data.json` existe y está actualizado
+- [ ] `config/calibration_data.json` existe (ya incluido en el repositorio)
 - [ ] Todas las dependencias instaladas (`pip install -r requirements.txt`)
-- [ ] Script de prueba funciona: `python test_pdf_processing.py`
+- [ ] Aplicación abre correctamente: `python main.py`
 
 ### Configuración
 - [ ] Excel con lista de estudiantes cargado

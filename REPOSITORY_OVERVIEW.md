@@ -188,13 +188,15 @@ test-scanner/
 
 ### 3. Herramientas y Utilidades
 
-**Herramienta de Calibración** (`calibrate_from_pdf.py`)
+**Herramienta de Calibración** (`calibrate_from_pdf.py`) **SOLO PARA DESARROLLADORES**
+- ✅ **Nota**: El sistema ya viene pre-calibrado. Este script solo es para casos especiales.
 - ✅ Calibración desde PDF escaneado
 - ✅ Detección ArUco y corrección de perspectiva
 - ✅ Interfaz interactiva para marcar 16 puntos de referencia
 - ✅ Interpolación bilineal para calcular 600+ círculos
-- ✅ Generación de `config/calibration_data.json`
+- ✅ Generación de `config/calibration_data.json` (sobrescribe el archivo existente)
 - ✅ Visualización de calibración
+- ⚠️ **Advertencia**: Solo usar si deseas una hoja de respuestas diferente a la oficial
 
 **Script de Verificación** (`test_grade_calculation.py`)
 - ✅ Verifica cálculo de notas vs. escaladenotas.cl
