@@ -170,7 +170,7 @@ test-scanner/
 ### Hoja de Respuestas
 
 - **Tamaño**: Carta (Letter) - 215.9mm × 279.4mm
-- **Marcadores ArUco**: 4 marcadores de 15mm en las esquinas (diccionario DICT_4X4_50)
+- **Marcadores ArUco**: 4 marcadores de 10mm en las esquinas (diccionario DICT_4X4_50)
 - **Sección de identificación**: 10 columnas × 10 dígitos (0-9) para matrícula
 - **Sección de respuestas**: 100 preguntas organizadas en 4 columnas de 25 preguntas
   - Columna 1: Preguntas 1-25

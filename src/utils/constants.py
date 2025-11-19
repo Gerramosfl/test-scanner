@@ -10,7 +10,7 @@ MATRICULA_DIGITS = 10
 
 # Configuración de marcadores ArUco
 ARUCO_DICT = "DICT_4X4_50"  # Diccionario de marcadores ArUco
-ARUCO_MARKER_SIZE_MM = 15  # Tamaño del marcador en mm
+ARUCO_MARKER_SIZE_MM = 10  # Tamaño del marcador en mm
 PAPER_SIZE = "LETTER"  # Tamaño de papel (Carta)
 
 # Dimensiones de papel carta en mm

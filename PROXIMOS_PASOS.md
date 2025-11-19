@@ -297,7 +297,7 @@ También genera `result_hoja_alumno_001.jpg` con overlay visual:
 
 ### Hojas de Respuestas
 - **Formato**: Papel Carta (215.9 x 279.4 mm)
-- **Marcadores ArUco**: DICT_4X4_50, 15mm
+- **Marcadores ArUco**: DICT_4X4_50, 10mm
 - **Escaneado**: 300 DPI mínimo
 - **Color**: Blanco y negro o escala de grises
 - **Instrumento**: Bolígrafo azul o negro (sin lápiz mina)
